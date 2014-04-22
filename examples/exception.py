@@ -19,7 +19,7 @@ class ExceptionCatcher(PyCdb):
             0x4000001f              # wow64 exception
         ]
     
-    def on_create_window_ex_w(self, bpnum, output):
+    def on_create_window_ex_w(self, bpnum):
         """
         when this breakpoint is hit, write some code at the current
         instruction pointer that will cause an access violation
@@ -83,7 +83,9 @@ class ExceptionCatcher(PyCdb):
                 output = self.read_to_prompt()
                              
                 # what was the stop event?
-                event = self.lastevent()
+                # processes the event which will automatically
+                # call any breakpoint handlers as well
+                event = self.process_event()
                 
                 print "got debugger event: %s" % (event.description)
                 

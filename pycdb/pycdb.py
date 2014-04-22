@@ -68,6 +68,7 @@ class DbgEvent:
         self.tid = tid
         self.description = desc
         self.exception = None
+        self.breakpoint = None
 
 class DbgException:
     """
@@ -94,12 +95,6 @@ class CdbReaderThread(threading.Thread):
             base = parse_addr(elems[1])
             end = parse_addr(elems[2])
             self.queue.put(LoadModuleEvent(elems[3].strip(), base, end-base))
-        else:
-            m = re.match(r'Breakpoint ([0-9]+) hit', line)
-            if m:
-                # stuff a breakpoint event into the queue
-                bpnum = int(m.group(1))
-                self.queue.put(BreakpointEvent(bpnum))
         
     def run(self):
         #print 'ReaderThread.run()'
@@ -118,8 +113,6 @@ class CdbReaderThread(threading.Thread):
             if ch == '\n':
                 self.process_line(curline)
                 curline = ''
-
-          
 
         
 class PyCdb:
@@ -218,8 +211,10 @@ class PyCdb:
                 raise PyCdbPipeClosedException()
             elif isinstance(event, LoadModuleEvent):
                 self.on_load_module(event)
+            """
             elif isinstance(event, BreakpointEvent):
                 self.on_breakpoint(event)
+            """
         return buf
            
     def write_pipe(self, buf):
@@ -241,21 +236,17 @@ class PyCdb:
     def on_breakpoint(self, event):
         handled = False
         bpnum = event.bpnum
-        #print "on_breakpoint: %u" % (bpnum)
-        # breakpoint detected, read all of the output buffer up to the current prompt
-        output = self.read_to_prompt()
-        #print 'output:\n' + output
         # call the handler if there is one
         if bpnum in self.breakpoints:
             handler = self.breakpoints[bpnum]
             if handler:
-                handler(bpnum, output)
+                handler(bpnum)
                 # continue execution
                 self.continue_debugging()
                 handled = True
         if not handled:
-            self.unhandled_breakpoint(bpnum, output)
-    
+            self.unhandled_breakpoint(bpnum)
+                
     def spawn(self, arguments):
         self._run_cdb(arguments)
         
@@ -306,10 +297,12 @@ class PyCdb:
         return mem
         
     def read_u32(self, address):
-        return struct.unpack('>L', self.read_mem(address, 4))[0]
+        buf = self.read_mem(address, 4)[0]
+        print buf.encode('hex')
+        return struct.unpack('<L', self.read_mem(address, 4))[0]
         
     def read_u16(self, address): 
-        return struct.unpack('>H', self.read_mem(address, 2))[0]    
+        return struct.unpack('<H', self.read_mem(address, 2))[0]    
         
     def read_u8(self, address):
         return self.read_mem(address, 1)
@@ -324,13 +317,13 @@ class PyCdb:
         return self.execute('eb %s %s' % (address, bytes))
         
     def write_u32(self, address, val):
-        return write_mem(address, struct.pack('>L', val))
+        return write_mem(address, struct.pack('<L', val))
         
     def write_u16(self, address, val):
-        return write_mem(address, struct.pack('>H', val))
+        return write_mem(address, struct.pack('<H', val))
         
     def write_u8(self, address, val):
-        return write_mem(address, struct.pack('>B', val))
+        return write_mem(address, struct.pack('<B', val))
     
     
     def modules(self):
@@ -407,6 +400,15 @@ class PyCdb:
             params.append(int(m.group(1), 16))
         ex.params = params
         return ex
+        
+    def _breakpoint_info(self, event_desc):
+        m = re.search(r'Hit breakpoint ([0-9]+)', event_desc)
+        if not m:
+            return None
+        bpnum = int(m.group(1))
+        bp = BreakpointEvent(bpnum)
+        print "_breakpoint_info: %s" % (bp)
+        return bp
             
     def lastevent(self):
         output = self.execute('.lastevent')
@@ -414,12 +416,24 @@ class PyCdb:
         if m:
             pid, tid, desc = m.groups()
             event = DbgEvent(pid, tid, desc)
-            exception = self.exception_info()
-            if exception:
-                event.exception = exception
+            
+            # was this a breakpoint?
+            bp = self._breakpoint_info(desc)
+            if bp:
+                event.breakpoint = bp
+            else:
+                # was it an exception?
+                exception = self.exception_info()
+                if exception:
+                    event.exception = exception
             return event
         else:
             return None
             
-
+    def process_event(self):
+        event = self.lastevent()
+        if event and event.breakpoint:
+            self.on_breakpoint(event.breakpoint)
+        return event
+        
     
