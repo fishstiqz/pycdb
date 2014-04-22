@@ -56,7 +56,29 @@ class BreakpointEvent(CdbEvent):
         self.bpnum = bpnum
     def __str__(self):
         return "BreakpointEvent: %u" % (self.bpnum)
-                
+        
+class DbgEvent:
+    """
+    class that represents the '.lastevent' command. this is an
+    event that takes place in the debuggee, not an event that 
+    is read over the cdb pipe
+    """
+    def __init__(self, pid, tid, desc):
+        self.pid = pid
+        self.tid = tid
+        self.description = desc
+        self.exception = None
+
+class DbgException:
+    """
+    class that represents an exception raised in the debuggee, such 
+    as an access violation. not to be confused with a python exception
+    """
+    def __init__(self, address, code, description):
+        self.address = address
+        self.code = code
+        self.description = description
+        self.params = []
        
 class CdbReaderThread(threading.Thread):
     def __init__(self, pipe):
@@ -362,19 +384,19 @@ class PyCdb:
             return None
             
     def exception_info(self):
-        ex = {}
         output = self.execute('.exr -1')
         if output.find('not an exception') != -1:
             return None
         m = re.search(r'ExceptionAddress: ([0-9A-Fa-f]+)', output)
         if not m:
             return None
-        ex['address'] = int(m.group(1), 16)
+        address = int(m.group(1), 16)
         m = re.search(r'ExceptionCode: ([0-9A-Fa-f]+) \(([^\)]+)\)', output)
         if not m:
             return None
-        ex['code'] = int(m.group(1), 16)
-        ex['desc'] = m.group(2)
+        code = int(m.group(1), 16)
+        desc = m.group(2)
+        ex = DbgException(address, code, desc)
         m = re.search(r'NumberParameters: ([0-9]+)', output)
         num_params = int(m.group(1))
         params = []
@@ -383,21 +405,18 @@ class PyCdb:
             if not m:
                 return None
             params.append(int(m.group(1), 16))
-        ex['params'] = params
+        ex.params = params
         return ex
             
     def lastevent(self):
-        event = {}
         output = self.execute('.lastevent')
         m = re.match(r'Last event: ([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)\: (.*)', output)
         if m:
             pid, tid, desc = m.groups()
-            event['pid'] = pid
-            event['tid'] = tid
-            event['desc'] = desc
+            event = DbgEvent(pid, tid, desc)
             exception = self.exception_info()
             if exception:
-                event['exception'] = exception
+                event.exception = exception
             return event
         else:
             return None

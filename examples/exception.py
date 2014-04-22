@@ -1,7 +1,6 @@
 import sys
 import os
 
-print os.path.join("..", "pycdb")
 sys.path.append(os.path.join("..", "pycdb"))
 
 import pycdb   
@@ -9,6 +8,10 @@ from pycdb import PyCdb, PyCdbPipeClosedException
     
     
 class ExceptionCatcher(PyCdb):
+    """
+    A simple demonstration class to show how to use PyCdb to 
+    issue commands, install breakpoints, and catch exceptions
+    """
     def __init__(self):
         PyCdb.__init__(self)
         
@@ -17,15 +20,26 @@ class ExceptionCatcher(PyCdb):
         ]
     
     def on_create_window_ex_w(self, bpnum, output):
+        """
+        when this breakpoint is hit, write some code at the current
+        instruction pointer that will cause an access violation
+        """
         print "CreateWindowExW breakpoint hit, adding crash code"
         crash_code  = "B8EFBEADDE"       # mov eax, 0xdeadbeef
         crash_code += "C700EDACEF0D"     # mov [eax], 0xdefaced
         self.write_mem('@$scopeip', crash_code.decode('hex'))
     
     def on_load_module(self, event):
+        """
+        just print the module that was loaded. note that this does callback 
+        does not drop you to a prompt. it is simply a notification callback.
+        """
         print "on_load_module: %08X, %08X, %s" % (event.base, event.length, event.module)
     
     def test_commands(self):
+        """
+        run some commands...
+        """
         print "lm output:"
         print self.execute('lm')
 
@@ -71,15 +85,14 @@ class ExceptionCatcher(PyCdb):
                 # what was the stop event?
                 event = self.lastevent()
                 
-                print "got debugger event: %s" % (event['desc'])
+                print "got debugger event: %s" % (event.description)
                 
-                if 'exception' in event:
-                    exception = event['exception']
-                    code = exception['code']
-                    if code in  self.ignore_exceptions:
-                        print "ignoring exception: %08X" % (code)
+                if event.exception:
+                    exception = event.exception
+                    if exception.code in  self.ignore_exceptions:
+                        print "ignoring exception: %08X" % (exception.code)
                     else:
-                        print "Exception %08X (%s) occured at %08X" % (code, exception['desc'], exception['address'])
+                        print "Exception %08X (%s) occured at %08X" % (exception.code, exception.description, exception.address)
                         print ""
                         print self.execute('ub @$scopeip L5').strip()
                         print "*** Exception here ***"
