@@ -9,7 +9,12 @@ import Queue
 import re
 import struct
 
-
+"""
+try:
+    import readline
+except ImportError:
+    import pyreadline as readline
+"""
 
 # breakpoint types
 BREAKPOINT_NORMAL       = 1
@@ -139,6 +144,8 @@ class PyCdb:
             pg_paths.append(os.environ["ProgramFiles(x86)"])
         # potential paths to the debugger in program files
         dbg_paths = [
+            "Windows Kits\\10\\Debuggers\\x64",
+            "Windows Kits\\10\\Debuggers\\x86",
             "Windows Kits\\8.1\\Debuggers\\x64",
             "Windows Kits\\8.1\\Debuggers\\x86",
             "Windows Kits\\8.0\\Debuggers\\x64",
@@ -266,7 +273,7 @@ class PyCdb:
             return int(m.group(1))
         else:
             return None
-            
+
     def registers(self):
         """
         return a map of registers and their current values.
@@ -412,7 +419,8 @@ class PyCdb:
             
     def lastevent(self):
         output = self.execute('.lastevent')
-        m = re.match(r'Last event: ([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)\: (.*)', output)
+        m = re.search(r'Last event: ([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)\: (.*)$',
+                output, re.MULTILINE)
         if m:
             pid, tid, desc = m.groups()
             event = DbgEvent(pid, tid, desc)
@@ -436,4 +444,17 @@ class PyCdb:
             self.on_breakpoint(event.breakpoint)
         return event
         
-    
+    def shell(self):
+        p = '> '
+        while True:
+            try:
+                input = raw_input(p)      
+                p = ''
+                if input.strip().lower() == 'quit':
+                    break
+                self.write_pipe(input + '\r\n')
+                output = self.read_to_prompt()
+                sys.stdout.write(output)
+            except EOFError:
+                break
+

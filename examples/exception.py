@@ -86,7 +86,6 @@ class ExceptionCatcher(PyCdb):
                 # processes the event which will automatically
                 # call any breakpoint handlers as well
                 event = self.process_event()
-                
                 print "got debugger event: %s" % (event.description)
                 
                 if event.exception:
@@ -95,12 +94,29 @@ class ExceptionCatcher(PyCdb):
                         print "ignoring exception: %08X" % (exception.code)
                     else:
                         print "Exception %08X (%s) occured at %08X" % (exception.code, exception.description, exception.address)
+
                         print ""
-                        print self.execute('ub @$scopeip L5').strip()
-                        print "*** Exception here ***"
-                        print self.execute('u @$scopeip L5').strip()
+                        print "Disas:"
+                        pre = self.execute('ub @$scopeip L5').strip().splitlines()
+                        for l in pre:
+                            print ' '*3 + l.strip() 
+                        post = self.execute('u @$scopeip L5').strip().splitlines()
+                        for i, l in enumerate(post):
+                            c = ' '*3
+                            if i == 1:
+                                c = '>'*3
+                            print c + l 
+                        
                         print ""
+                        print "Registers:"
                         print self.execute('r')
+
+                        print ""
+                        print "Stacktrace:"
+                        print self.execute('kb')
+
+                        self.shell()
+
                         break
                         
         except PyCdbPipeClosedException:
