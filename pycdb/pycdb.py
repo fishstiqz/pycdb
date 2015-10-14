@@ -120,7 +120,12 @@ class CdbReaderThread(threading.Thread):
                 curline = ''
 
 
-class PyCdb:
+class PyCdb(object):
+    _registers = ["eax", "ebx", "ecx", "edx", "esi", "edi", "eip", "esp", "ebp",
+                  "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rip", "rsp", "rbp",
+                   "r8",  "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
+
+
     def __init__(self, cdb_path=None):
         self.pipe = None
         if cdb_path:
@@ -284,6 +289,12 @@ class PyCdb:
         for entry in all:
             map[entry[0]] = int(entry[1], 16)
         return map
+
+    def __getattr__(self, name):
+        if name in self._registers:
+            return self.registers()[name]
+
+        return super(A, self).__getattribute__(name)
 
     def read_mem(self, address, len):
         mem = ''
