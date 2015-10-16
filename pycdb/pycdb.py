@@ -28,12 +28,26 @@ def parse_addr(addrstr):
     """
     return int(addrstr.replace('`',''), 16)
 
+def addr_to_hex(addr):
+    """
+    convert an address as int or long into a string
+    """
+    str = hex(addr)
+    if str[-1] == 'L':
+        return str[:-1]
+    return str
+
 class PyCdbException(Exception):
     pass
 
 class PyCdbPipeClosedException(PyCdbException):
     def __str__(self):
         return "cdb pipe is closed"
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
 
 class CdbEvent:
     pass
@@ -274,11 +288,12 @@ class PyCdb:
         else:
             return None
 
+    @property
     def registers(self):
         """
         return a map of registers and their current values.
         """
-        map = {}
+        map = AttrDict()
         regs = self.execute("r")
         all = re.findall(r'([A-Za-z0-9]+)\=([0-9A-Fa-f]+)', regs)
         for entry in all:
@@ -288,8 +303,8 @@ class PyCdb:
     def read_mem(self, address, len):
         mem = ''
         rem = len
-        if type(address) == int:
-            address = hex(address)
+        if type(address) in (int, long):
+            address = addr_to_hex(address)
         output = self.execute('db %s L%X' % (address, len))
         for line in output.splitlines():
             chunk = 16
@@ -316,8 +331,8 @@ class PyCdb:
 
 
     def write_mem(self, address, buf):
-        if type(address) == int:
-            address = hex(address)
+        if type(address) in (int, long):
+            address = addr_to_hex(address)
         bytes = ''
         for b in buf:
             bytes += b.encode('hex') + ' '
@@ -354,8 +369,8 @@ class PyCdb:
         return bpnums
 
     def breakpoint(self, address, handler=None, bptype=BREAKPOINT_NORMAL, bpmode="e"):
-        if type(address) == int:
-            address = hex(address)
+        if type(address) in (int, long):
+            address = addr_to_hex(address)
         cmd = 'bp'
         if bptype == BREAKPOINT_UNRESOLVED:
             cmd = 'bu'
