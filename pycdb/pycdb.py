@@ -148,11 +148,13 @@ class PyCdb:
         self.pipe_closed = True
         self.qthread = None
         self.breakpoints = {}
+        self.bit_width = 32
 
     def _find_cdb_path(self):
         # build program files paths
         pg_paths = [ os.environ["PROGRAMFILES"] ]
         if "ProgramW6432" in os.environ:
+            self.bit_width = 64
             pg_paths.append(os.environ["ProgramW6432"])
         if "ProgramFiles(x86)" in os.environ:
             pg_paths.append(os.environ["ProgramFiles(x86)"])
@@ -320,7 +322,6 @@ class PyCdb:
 
     def read_u32(self, address):
         buf = self.read_mem(address, 4)[0]
-        print buf.encode('hex')
         return struct.unpack('<L', self.read_mem(address, 4))[0]
 
     def read_u16(self, address):
@@ -328,7 +329,6 @@ class PyCdb:
 
     def read_u8(self, address):
         return self.read_mem(address, 1)
-
 
     def write_mem(self, address, buf):
         if type(address) in (int, long):
@@ -346,6 +346,32 @@ class PyCdb:
 
     def write_u8(self, address, val):
         return write_mem(address, struct.pack('<B', val))
+
+    def search(self, value, mode="d", begin=0, end=0xFFFFFFFF):
+        if self.bit_width == 64 and end == 0xFFFFFFFF:
+            end = 0xFFFFFFFFFFFFFFFF
+
+        if mode == "d" or mode == "w":
+            return self.execute("s -%s %x L?%x %x" % (mode, begin, end, value))
+
+        elif mode == "a" or mode == "b":
+            return self.execute("s -%s %x L?%x %s" % (mode, begin, end, value))
+
+        return ""
+
+    def search_int(self, value, begin=0, end=0xFFFFFFFF):
+        return self.search(value, "d", begin, end)
+
+    def search_ascii(self, value, begin=0, end=0xFFFFFFFF):
+        return self.search(value, "a", begin, end)
+
+    def search_bytes(self, value, begin=0, end=0xFFFFFFFF):
+        """ value should be a string "fe ed fa ce" """
+        if isinstance(value, basestring):
+            return self.search(value, "b", begin, end)
+
+        print "Error: search_bytes called with non-string value."
+        return ""
 
 
     def modules(self):
@@ -388,7 +414,13 @@ class PyCdb:
             self.breakpoints[bpnum] = handler
             return bpnum
 
-    def remove_breakpoint(self, bpnum):
+    def breakpoint_disable(self, bpnum):
+        self.execute("bd %u" % bpnum)
+
+    def breakpoint_enable(self, bpnum):
+        self.execute("be %u" % bpnum)
+
+    def breakpoint_remove(self, bpnum):
         self.execute("bc %u" % (bpnum))
 
     def lastexception(self):
@@ -430,7 +462,7 @@ class PyCdb:
             return None
         bpnum = int(m.group(1))
         bp = BreakpointEvent(bpnum)
-        print "_breakpoint_info: %s" % (bp)
+        # print "_breakpoint_info: %s" % (bp)
         return bp
 
     def lastevent(self):
