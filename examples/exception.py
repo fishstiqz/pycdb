@@ -1,6 +1,7 @@
 import sys
 import os
 import struct
+import getopt
 
 sys.path.append(os.path.join("..", "pycdb"))
 
@@ -59,7 +60,7 @@ class ExceptionCatcher(PyCdb):
         stack = 0
         try:
             stack = self.registers.esp
-        except AttributeError:
+        except (AttributeError, KeyError) as ex:
             stack = self.registers.rsp
         print "stack at %08X" % (stack)
         contents = struct.unpack('<LLLLLLLL',self.read_mem(stack, 0x20))
@@ -73,10 +74,7 @@ class ExceptionCatcher(PyCdb):
         print hex(self.evaluate('@$peb'))
 
 
-    def run(self, prog_args):
-        # run the process
-        self.spawn(prog_args)
-
+    def run(self):
         try:
             # wait until the first prompt
             # this works because initial_breakpoint is True
@@ -90,9 +88,12 @@ class ExceptionCatcher(PyCdb):
 
             # simple debugging loop
             while True:
+                print "continuing debugging"
                 # continue and wait for a prompt
                 self.continue_debugging()
+                print "reading to prompt"
                 output = self.read_to_prompt()
+                print "returned from prompt"
 
                 # what was the stop event?
                 # processes the event which will automatically
@@ -143,8 +144,35 @@ class ExceptionCatcher(PyCdb):
                 self.write_pipe('q\r\n')
 
 
+def usage():
+    print "usage: %s [-p|--pid] <pid or program>" % (sys.argv[0])
+
 if __name__ == "__main__":
+    pid = False
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'p', ['pid'])
+    except getopt.GetoptError as err:
+        print str(err)
+        usage()
+        sys.exit(1)
+    for o, a in opts:
+        if o in ('-p', '--pid'):
+            pid = True
+        else:
+            assert False, 'unhandled option'
+
     dbg = ExceptionCatcher()
-    # run calc
-    dbg.run(['calc.exe'])
+
+    if pid:
+        # attach to the specified pid
+        dbg.attach(int(args[0]))
+    else:
+        # run the specified command (or notepad)
+        if not args or len(args) == 0:
+            args = ['notepad.exe']
+        dbg.spawn(args)
+    # run the debug session
+    dbg.run()
+
+
 

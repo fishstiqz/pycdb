@@ -9,13 +9,6 @@ import Queue
 import re
 import struct
 
-"""
-try:
-    import readline
-except ImportError:
-    import pyreadline as readline
-"""
-
 # breakpoint types
 BREAKPOINT_NORMAL       = 1
 BREAKPOINT_UNRESOLVED   = 2
@@ -227,7 +220,6 @@ class PyCdb:
                 # read one character at a time until we see a '> '
                 if debug:
                     print 'read: %s' % (ch)
-
                 buf += ch
 
                 # look for prompt
