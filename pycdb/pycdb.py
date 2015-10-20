@@ -226,10 +226,10 @@ class PyCdb:
                 buf += ch
 
                 # look for prompt
-                if lastch == '>' and ch == ' ':
+                if lastch == '>' and ch == ' ' and self.qthread.queue.empty():
                     # For initial breakpoint since we cant insert our marker
                     # On this one
-                    if not self.first_prompt_read and self.qthread.queue.empty():
+                    if not self.first_prompt_read:
                         self.first_prompt_read = True
                         break
 
