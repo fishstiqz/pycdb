@@ -21,6 +21,7 @@ BREAKPOINT_NORMAL       = 1
 BREAKPOINT_UNRESOLVED   = 2
 BREAKPOINT_HARDWARE     = 3
 
+COMMAND_FINISHED_MARKER = "CMDH@ZF1N1$H3D"
 
 def parse_addr(addrstr):
     """
@@ -149,6 +150,7 @@ class PyCdb:
         self.qthread = None
         self.breakpoints = {}
         self.bit_width = 32
+        self.first_prompt_read = False
 
     def _find_cdb_path(self):
         # build program files paths
@@ -220,13 +222,19 @@ class PyCdb:
                 # read one character at a time until we see a '> '
                 if debug:
                     print 'read: %s' % (ch)
-                if keep_output:
-                    buf += ch
+
+                buf += ch
 
                 # look for prompt
                 if lastch == '>' and ch == ' ':
-                    # see if queue is empty, if so, we've found the prompt
-                    if self.qthread.queue.empty():
+                    # For initial breakpoint since we cant insert our marker
+                    # On this one
+                    if not self.first_prompt_read and self.qthread.queue.empty():
+                        self.first_prompt_read = True
+                        break
+
+                    if COMMAND_FINISHED_MARKER in buf:
+                        buf = buf.replace("%s\n" % (COMMAND_FINISHED_MARKER), "")
                         break
                 lastch = ch
             elif isinstance(event, PipeClosedEvent):
@@ -238,16 +246,16 @@ class PyCdb:
             elif isinstance(event, BreakpointEvent):
                 self.on_breakpoint(event)
             """
-        return buf
+        return buf if keep_output else ""
 
     def write_pipe(self, buf):
-        self.pipe.stdin.write(buf)
+        self.pipe.stdin.write('%s ; .echo %s\r\n' % (buf, COMMAND_FINISHED_MARKER))
 
     def continue_debugging(self):
         """
         tell cdb to go but don't issue a read to prompt
         """
-        self.write_pipe('g\r\n')
+        self.write_pipe('g')
 
     def on_load_module(self, event):
         pass
@@ -277,7 +285,7 @@ class PyCdb:
         self._run_cdb(['-p', str(pid)])
 
     def execute(self, command):
-        self.write_pipe(command + '\r\n')
+        self.write_pipe(command)
         # return the entire output except the prompt string
         output = self.read_to_prompt()
         return "\n".join(output.splitlines()[:-1])+"\n"
@@ -501,7 +509,7 @@ class PyCdb:
                 p = ''
                 if input.strip().lower() == 'quit':
                     break
-                self.write_pipe(input + '\r\n')
+                self.write_pipe(input)
                 output = self.read_to_prompt()
                 sys.stdout.write(output)
             except EOFError:
