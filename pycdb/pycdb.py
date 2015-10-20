@@ -46,9 +46,14 @@ class PyCdbPipeClosedException(PyCdbException):
         return "cdb pipe is closed"
 
 class AttrDict(dict):
-    def __init__(self, *args, **kwargs):
-        super(AttrDict, self).__init__(*args, **kwargs)
-        self.__dict__ = self
+    def __getattr__(self, key):
+        return self[key]
+
+    def __setattr__(self, key, value):
+        if self.setterCallback:
+            self.setterCallback(key, value)
+        else:
+            self[key] = value
 
 class CdbEvent:
     pass
@@ -303,12 +308,15 @@ class PyCdb:
         """
         return a map of registers and their current values.
         """
-        map = AttrDict()
+        map = AttrDict(setterCallback=self.setRegister)
         regs = self.execute("r")
         all = re.findall(r'([A-Za-z0-9]+)\=([0-9A-Fa-f]+)', regs)
         for entry in all:
             map[entry[0]] = int(entry[1], 16)
         return map
+
+    def setRegister(self, register, value):
+        self.execute("r @%s=%x" % (register, value))
 
     def read_mem(self, address, len):
         mem = ''
