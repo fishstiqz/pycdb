@@ -15,6 +15,11 @@ BREAKPOINT_NORMAL       = 1
 BREAKPOINT_UNRESOLVED   = 2
 BREAKPOINT_HARDWARE     = 3
 
+# cpu types
+CPU_X86                 = 1
+CPU_X64                 = 2
+
+# marker for prompt
 COMMAND_FINISHED_MARKER = "CMDH@ZF1N1$H3D"
 
 def parse_addr(addrstr):
@@ -138,6 +143,68 @@ class CdbReaderThread(threading.Thread):
                 self.process_line(curline)
                 curline = ''
 
+class Registers(object):
+    def __init__(self, dbg):
+        self.dbg = dbg
+        self._initialized = True
+
+    def get(self, name):
+        buf = self.dbg.execute('r @%s' % (name))
+        if buf.find('Bad register') != -1:
+            raise AttributeError('Bad register %s' % (name))
+        # TODO: implement xmm regs
+        m = re.match(r'(.+)=([0-9A-Fa-f]+)', buf)
+        if not m:
+            raise AttributeError('Bad register %s (unable to parse value)' % (name))
+        val = int(m.group(2), 16)
+        #print "Registers.get(%s) => %x" % (name, val)
+        return val
+
+    def set(self, name, value):
+        # TODO: implement xmm regs
+        buf = self.dbg.execute('r @%s=0x%x' % (name, value))
+        if buf.find('Bad register') != -1:
+            raise AttributeError('Bad register %s' % (name))
+        if buf.find('Syntax error') != -1:
+            raise AttributeError('Syntax error %s, %s' % (name, value))
+
+    @property
+    def all(self):
+        """
+        return a map of registers and their current values.
+        """
+        map = AttrDict()
+        regs = self.dbg.execute("r")
+        all = re.findall(r'([A-Za-z0-9]+)\=([0-9A-Fa-f]+)', regs)
+        for entry in all:
+            map[entry[0]] = int(entry[1], 16)
+        return map
+
+    def __getattr__(self, item):
+        """only called if there *isn't* an attribute with this name"""
+        if not self.__dict__.has_key(item):
+            return self.get(item)
+        raise AttributeError(item)
+
+    def __setattr__(self, item, value):
+        if not self.__dict__.has_key('_initialized'):
+            return dict.__setattr__(self, item, value)
+        elif self.__dict__.has_key(item):
+            return dict.__setattr__(self, item, value)
+        else:
+            return self.set(item, value)
+
+    def __getitem__(self, item):
+        try:
+            return self.get(item)
+        except:
+            raise KeyError(item)
+
+    def __setitem__(self, item, value):
+        try:
+            self.set(item, value)
+        except:
+            raise KeyError(item)
 
 class PyCdb(object):
     def __init__(self, cdb_path=None):
@@ -319,6 +386,21 @@ class PyCdb(object):
             return None
 
     @property
+    def cpu_type(self):
+        buf = self.execute('.effmach')
+        if buf.find('x86') != -1:
+            return CPU_X86
+        elif buf.find('x64') != -1:
+            return CPU_X64
+        else:
+            raise PyCdbException('unknown architecture: %s' % (buf.strip()))
+
+    @property
+    def registers(self):
+        return Registers(self)
+
+    '''
+    @property
     def registers(self):
         """
         return a map of registers and their current values.
@@ -329,6 +411,7 @@ class PyCdb(object):
         for entry in all:
             map[entry[0]] = int(entry[1], 16)
         return map
+    '''
 
     def setRegister(self, register, value):
         self.execute("r @%s=%x" % (register, value))
@@ -419,7 +502,6 @@ class PyCdb(object):
         bpnums = []
         output = self.execute('bl')
         for line in output.splitlines():
-            print line
             line = line.strip()
             elems = re.split(r'\s+', line)
             if len(elems) > 1 and len(elems[0]) > 0:
@@ -538,16 +620,20 @@ class PyCdb(object):
 
     def shell(self):
         print "Dropping to cdb shell.  'quit' to exit."
-        p = '> '
+        p = 'cdb> '
         while True:
             try:
                 input = raw_input(p)
                 p = ''
                 if input.strip().lower() == 'quit':
                     break
-                self.write_pipe(input)
-                output = self.read_to_prompt()
-                sys.stdout.write(output)
+                elif input.strip().lower() == 'pdb':
+                    import pdb; pdb.set_trace()
+                    p = 'cdb> '
+                else:
+                    self.write_pipe(input)
+                    output = self.read_to_prompt()
+                    sys.stdout.write(output)
             except EOFError:
                 break
 
