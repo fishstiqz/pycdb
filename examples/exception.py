@@ -6,7 +6,7 @@ import getopt
 sys.path.append(os.path.join("..", "pycdb"))
 
 import pycdb
-from pycdb import PyCdb, PyCdbPipeClosedException
+from pycdb import PyCdb, PyCdbPipeClosedException, ExceptionEvent
 
 
 class ExceptionCatcher(PyCdb):
@@ -36,7 +36,7 @@ class ExceptionCatcher(PyCdb):
         just print the module that was loaded. note that this does callback
         does not drop you to a prompt. it is simply a notification callback.
         """
-        print "on_load_module: %08X, %08X, %s" % (event.base, event.length, event.module)
+        print "on_load_module: %08X, %s" % (event.base, event.module)
 
     def test_commands(self):
         """
@@ -101,8 +101,8 @@ class ExceptionCatcher(PyCdb):
                 event = self.process_event()
                 print "got debugger event: %s" % (event.description)
 
-                if event.exception:
-                    exception = event.exception
+                if type(event) == ExceptionEvent:
+                    exception = event
                     if exception.code in  self.ignore_exceptions:
                         print "ignoring exception: %08X" % (exception.code)
                     else:

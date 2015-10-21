@@ -8,6 +8,7 @@ import time
 import Queue
 import re
 import struct
+import shlex
 
 # breakpoint types
 BREAKPOINT_NORMAL       = 1
@@ -48,7 +49,7 @@ class AttrDict(dict):
         else:
             self[key] = value
 
-class CdbEvent:
+class CdbEvent(object):
     pass
 
 class OutputEvent(CdbEvent):
@@ -61,34 +62,36 @@ class PipeClosedEvent(CdbEvent):
     def __str__(self):
         return "PipeClosedEvent"
 
-class LoadModuleEvent(CdbEvent):
-    def __init__(self, module, base, length):
-        self.module = module
-        self.base = base
-        self.length = length
-    def __str__(self):
-        return "LoadModuleEvent: %s, %08X, %u" % (self.module, self.base, self.length)
-
-class BreakpointEvent(CdbEvent):
-    def __init__(self, bpnum):
-        self.bpnum = bpnum
-    def __str__(self):
-        return "BreakpointEvent: %u" % (self.bpnum)
-
-class DbgEvent:
-    """
-    class that represents the '.lastevent' command. this is an
-    event that takes place in the debuggee, not an event that
-    is read over the cdb pipe
-    """
-    def __init__(self, pid, tid, desc):
+class DebuggerEvent(CdbEvent):
+    def __init__(self):
+        self.pid = 0
+        self.tid = 0
+        self.description = ''
+    def set_base(self, pid=None, tid=None, desc=None):
+        if type(pid) == str:
+            pid = int(pid, 16)
+        if type(tid) == str:
+            tid = int(tid, 16)
         self.pid = pid
         self.tid = tid
         self.description = desc
-        self.exception = None
-        self.breakpoint = None
+    def __str__(self):
+        return "DebuggerEvent(%x,%x)" % (self.pid, self.tid)
 
-class DbgException:
+class LoadModuleEvent(DebuggerEvent):
+    def __init__(self, module, base):
+        self.module = module
+        self.base = base
+    def __str__(self):
+        return "LoadModuleEvent(%x,%x): %s, %08X" % (self.pid, self.tid, self.module, self.base)
+
+class BreakpointEvent(DebuggerEvent):
+    def __init__(self, bpnum):
+        self.bpnum = bpnum
+    def __str__(self):
+        return "BreakpointEvent(%x,%x): %u" % (self.pid, self.tid, self.bpnum)
+
+class ExceptionEvent(DebuggerEvent):
     """
     class that represents an exception raised in the debuggee, such
     as an access violation. not to be confused with a python exception
@@ -98,6 +101,10 @@ class DbgException:
         self.code = code
         self.description = description
         self.params = []
+    def __str__(self):
+        return "ExceptionEvent(%x,%x): %08X: code=%08X: %s" % (
+                self.pid, self.tid, self.address, self.code, self.description)
+
 
 class CdbReaderThread(threading.Thread):
     def __init__(self, pipe):
@@ -106,13 +113,12 @@ class CdbReaderThread(threading.Thread):
         self.pipe = pipe
 
     def process_line(self, line):
-        #print "process_line: %s" % (line)
         if line.startswith("ModLoad: "):
             # stuff a load module event into the queue
             elems = re.split(r'\s+', line, 3)
             base = parse_addr(elems[1])
             end = parse_addr(elems[2])
-            self.queue.put(LoadModuleEvent(elems[3].strip(), base, end-base))
+            self.queue.put(LoadModuleEvent(elems[3].strip(), base))
 
     def run(self):
         #print 'ReaderThread.run()'
@@ -133,7 +139,7 @@ class CdbReaderThread(threading.Thread):
                 curline = ''
 
 
-class PyCdb:
+class PyCdb(object):
     def __init__(self, cdb_path=None):
         self.pipe = None
         if cdb_path:
@@ -144,11 +150,13 @@ class PyCdb:
         self.debug_children = False
         self.initial_breakpoint = True
         self.final_breakpoint = False
+        self.break_on_load_modules = False
         self.pipe_closed = True
         self.qthread = None
         self.breakpoints = {}
         self.bit_width = 32
         self.first_prompt_read = False
+        self.cdb_cmdline = []
 
     def _find_cdb_path(self):
         # build program files paths
@@ -186,14 +194,24 @@ class PyCdb:
         self.qthread.start()
         self.pipe_closed = False
 
+    def add_cmdline_option(self, option):
+        if type(option) == list:
+            self.cdb_cmdline.append(option)
+        else:
+            self.cdb_cmdline.append(shlex.split(option))
+
     def _run_cdb(self, arguments):
         cmdline = [self.cdb_path]
+        if len(self.cdb_cmdline) > 0:
+            cmdline += self.cdb_cmdline
         if self.debug_children:
             cmdline.append('-o')
         if not self.initial_breakpoint:
             cmdline.append('-g')
         if not self.final_breakpoint:
             cmdline.append('-G')
+        if self.break_on_load_modules:
+            cmdline += ['-xe', 'ld']
         if self.initial_command and len(self.initial_command) > 0:
             cmdline += ['-c', '"%s"' % (self.initial_command)]
         self._create_pipe(cmdline + arguments)
@@ -238,11 +256,13 @@ class PyCdb:
                 self.pipe_closed = True
                 raise PyCdbPipeClosedException()
             elif isinstance(event, LoadModuleEvent):
-                self.on_load_module(event)
-            """
-            elif isinstance(event, BreakpointEvent):
-                self.on_breakpoint(event)
-            """
+                # this is a bit tricky, if we ARE breaking on modload
+                # then we don't want to call the handler as it will be
+                # called when process_event is called. However, if
+                # we ARE NOT breaking on modload, then we probably should
+                # call here
+                if not self.break_on_load_modules:
+                    self.on_load_module(event)
         return buf if keep_output else ""
 
     def write_pipe(self, buf):
@@ -274,6 +294,9 @@ class PyCdb:
                 handled = True
         if not handled:
             self.unhandled_breakpoint(bpnum)
+
+    def on_exception(self, event):
+        pass
 
     def spawn(self, arguments):
         self._run_cdb(arguments)
@@ -396,6 +419,7 @@ class PyCdb:
         bpnums = []
         output = self.execute('bl')
         for line in output.splitlines():
+            print line
             line = line.strip()
             elems = re.split(r'\s+', line)
             if len(elems) > 1 and len(elems[0]) > 0:
@@ -431,15 +455,7 @@ class PyCdb:
     def breakpoint_remove(self, bpnum):
         self.execute("bc %u" % (bpnum))
 
-    def lastexception(self):
-        output = self.execute('.lastevent')
-        m = re.match(r'Last event: ([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)\: ([^-]+) - code ([0-9A-Fa-f]+) \(([^\)]+)\)', output)
-        if m:
-            pid, tid, desc, code, chance = m.groups()
-        else:
-            return None
-
-    def exception_info(self):
+    def _exception_info(self):
         output = self.execute('.exr -1')
         if output.find('not an exception') != -1:
             return None
@@ -452,7 +468,7 @@ class PyCdb:
             return None
         code = int(m.group(1), 16)
         desc = m.group(2)
-        ex = DbgException(address, code, desc)
+        ex = ExceptionEvent(address, code, desc)
         m = re.search(r'NumberParameters: ([0-9]+)', output)
         num_params = int(m.group(1))
         params = []
@@ -473,31 +489,51 @@ class PyCdb:
         # print "_breakpoint_info: %s" % (bp)
         return bp
 
+    def _load_module_info(self, event_desc):
+        m = re.search(r'Load module (.*) at ([0-9A-Fa-f`]+)', event_desc)
+        if not m:
+            return None
+        module_path = m.group(1)
+        module_base = int(m.group(2).replace('`',''), 16)
+        lme = LoadModuleEvent(module_path, module_base)
+        return lme
+
     def lastevent(self):
+        event = None
         output = self.execute('.lastevent')
         m = re.search(r'Last event: ([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)\: (.*)$',
                 output, re.MULTILINE)
         if m:
             pid, tid, desc = m.groups()
-            event = DbgEvent(pid, tid, desc)
-
-            # was this a breakpoint?
-            bp = self._breakpoint_info(desc)
-            if bp:
-                event.breakpoint = bp
-            else:
+            #
+            # what type of event was this?
+            #
+            while True: # always breaks at end
+                # was this a breakpoint?
+                event = self._breakpoint_info(desc)
+                if event:
+                    break
+                # was this a load module event?
+                event = self._load_module_info(desc)
+                if event:
+                    break
                 # was it an exception?
-                exception = self.exception_info()
-                if exception:
-                    event.exception = exception
-            return event
-        else:
-            return None
+                event = self._exception_info()
+                # always break at the end
+                break
+            # if we have an event, set the base info
+            if event:
+                event.set_base(pid, tid, desc)
+        return event
 
     def process_event(self):
         event = self.lastevent()
-        if event and event.breakpoint:
-            self.on_breakpoint(event.breakpoint)
+        if type(event) == BreakpointEvent:
+            self.on_breakpoint(event)
+        elif type(event) == LoadModuleEvent:
+            self.on_load_module(event)
+        elif type(event) == ExceptionEvent:
+            self.on_exception(event)
         return event
 
     def shell(self):
