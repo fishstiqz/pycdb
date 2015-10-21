@@ -168,7 +168,6 @@ class Registers(object):
         if buf.find('Syntax error') != -1:
             raise AttributeError('Syntax error %s, %s' % (name, value))
 
-    @property
     def all(self):
         """
         return a map of registers and their current values.
@@ -576,7 +575,7 @@ class PyCdb(object):
         if not m:
             return None
         module_path = m.group(1)
-        module_base = int(m.group(2).replace('`',''), 16)
+        module_base = parse_addr(m.group(2))
         lme = LoadModuleEvent(module_path, module_base)
         return lme
 
