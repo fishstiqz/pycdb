@@ -42,6 +42,11 @@ class ExceptionCatcher(PyCdb):
         """
         run some commands...
         """
+        if self.cpu_type == pycdb.CPU_X64:
+            print "X64"
+        else:
+            print "X86"
+
         print "lm output:"
         print self.execute('lm')
 
@@ -58,10 +63,13 @@ class ExceptionCatcher(PyCdb):
 
         print "stack contents"
         stack = 0
+
+
+
         try:
-            stack = self.registers.esp
-        except (AttributeError, KeyError) as ex:
             stack = self.registers.rsp
+        except (AttributeError, KeyError) as ex:
+            stack = self.registers.esp
         print "stack at %08X" % (stack)
         contents = struct.unpack('<LLLLLLLL',self.read_mem(stack, 0x20))
         for i, dword in enumerate(contents):
@@ -131,6 +139,23 @@ class ExceptionCatcher(PyCdb):
                         print ""
                         print "Stack contents:"
                         print self.execute('dp @$csp L30')
+
+
+                        regs = pycdb.Registers(self)
+                        print regs
+                        print regs.all
+
+                        print hex(regs.eip)
+                        print hex(regs.get('$scopeip'))
+                        print hex(regs.get('$t0'))
+
+                        print hex(regs.eax)
+                        print hex(regs['$scopeip'])
+                        print type(regs['$scopeip'])
+                        print hex(regs['$peb'])
+                        print hex(regs['$t0'])
+                        regs['$t0'] = 0x1337
+                        print hex(regs['$t0'])
 
                         self.shell()
 
