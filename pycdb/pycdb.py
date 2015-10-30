@@ -370,6 +370,9 @@ class PyCdb(object):
     def attach(self, pid):
         self._run_cdb(['-p', str(pid)])
 
+    def quit(self):
+        self.write_pipe('q\r\n')
+
     def execute(self, command):
         self.write_pipe(command)
         # return the entire output except the prompt string
