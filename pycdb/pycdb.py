@@ -618,7 +618,7 @@ class PyCdb(object):
         return event
 
     def shell(self):
-        print "Dropping to cdb shell.  'quit' to exit."
+        print "Dropping to cdb shell.  'quit' to exit, 'pdb' for python debugger."
         p = 'cdb> '
         while True:
             try:
