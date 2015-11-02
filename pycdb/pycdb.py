@@ -340,7 +340,7 @@ class PyCdb(object):
         return buf if keep_output else ""
 
     def write_pipe(self, buf):
-        self.pipe.stdin.write('%s ; .echo %s\r\n' % (buf, COMMAND_FINISHED_MARKER))
+        self.pipe.stdin.write('%s\r\n.echo %s\r\n' % (buf, COMMAND_FINISHED_MARKER))
 
     def continue_debugging(self):
         """
