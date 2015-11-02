@@ -20,7 +20,7 @@ CPU_X86                 = 1
 CPU_X64                 = 2
 
 # marker for prompt
-COMMAND_FINISHED_MARKER = "CMDH@ZF1N1$H3D"
+COMMAND_FINISHED_MARKER = "CMDH@ZF1N1SH3D"
 
 def parse_addr(addrstr):
     """
@@ -323,7 +323,12 @@ class PyCdb(object):
                         break
 
                     if COMMAND_FINISHED_MARKER in buf:
-                        buf = buf.replace("%s\n" % (COMMAND_FINISHED_MARKER), "")
+                        # remove the marker and the next prompt
+                        # this is ok since the marker is inserted via a newline
+                        # and not a semicolon.
+                        #buf = buf.replace("%s\n" % (COMMAND_FINISHED_MARKER), "")
+                        pat = '%s\\n.+' % (COMMAND_FINISHED_MARKER)
+                        buf = re.sub(pat, '', buf, flags=re.MULTILINE)
                         break
                 lastch = ch
             elif isinstance(event, PipeClosedEvent):
