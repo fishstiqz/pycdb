@@ -223,6 +223,7 @@ class PyCdb(object):
         self.bit_width = 32
         self.first_prompt_read = False
         self.cdb_cmdline = []
+        self.is_debuggable = True
 
     def _find_cdb_path(self):
         # build program files paths
@@ -288,7 +289,7 @@ class PyCdb(object):
         """
         return self.pipe_closed
 
-    def read_to_prompt(self, keep_output=True, debug=False):
+    def read_to_prompt(self, timeout=None, keep_output=True, debug=False):
         """
         This is the main 'wait' function, it dequeues event objects from
         the cdb output queue and acts on them.
@@ -296,10 +297,17 @@ class PyCdb(object):
         """
         buf = ''
         lastch = None
+
         while True:
-            event = self.qthread.queue.get()
+            try:
+                event = self.qthread.queue.get(True, timeout)
+            except Queue.Empty:
+                self.is_debuggable = False
+                break;
+
             #print "read_to_prompt: %s" % (event)
             if isinstance(event, OutputEvent):
+                self.is_debuggable = True
                 ch = event.output
                 # read one character at a time until we see a '> '
                 if debug:
@@ -370,7 +378,15 @@ class PyCdb(object):
     def attach(self, pid):
         self._run_cdb(['-p', str(pid)])
 
+    def quit(self):
+        self.write_pipe('q\r\n')
+        self.pipe.kill()
+
     def execute(self, command):
+        if not self.is_debuggable:
+            raise Exception("PyCdb is not at a breakpoint. This is the only time "
+                            "you may execute commands")
+
         self.write_pipe(command)
         # return the entire output except the prompt string
         output = self.read_to_prompt()
@@ -608,6 +624,8 @@ class PyCdb(object):
         return event
 
     def process_event(self):
+        if not self.is_debuggable:
+            return None
         event = self.lastevent()
         if type(event) == BreakpointEvent:
             self.on_breakpoint(event)
