@@ -18,7 +18,9 @@ class ExceptionCatcher(PyCdb):
         PyCdb.__init__(self)
 
         self.ignore_exceptions = [
-            0x4000001f              # wow64 exception
+            0x4000001f, # wow64 exception
+            0xe06d7363, # C++ exception
+            0x40080201,0x80010108, 0x8001010D, 0x6A6, 0x8001010D, 0x40080201
         ]
 
     def on_create_window_ex_w(self, bpnum):
