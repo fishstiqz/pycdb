@@ -22,6 +22,9 @@ CPU_X64                 = 2
 # marker for prompt
 COMMAND_FINISHED_MARKER = "CMDH@ZF1N1SH3D"
 
+# max buffer size for output
+OUTPUT_BUF_MAX          = 5*1024*1024
+
 def parse_addr(addrstr):
     """
     parse 64 or 32-bit address from string into int
@@ -212,6 +215,7 @@ class PyCdb(object):
             self.cdb_path = cdb_path
         else:
             self.cdb_path = self._find_cdb_path()
+        self.output_buf_max = OUTPUT_BUF_MAX
         self.initial_command = ''
         self.debug_children = False
         self.initial_breakpoint = True
@@ -313,6 +317,9 @@ class PyCdb(object):
                 if debug:
                     print 'read: %s' % (ch)
                 buf += ch
+
+                if len(buf) >= self.output_buf_max:
+                    buf = buf[self.output_buf_max/2:]
 
                 # look for prompt
                 if lastch == '>' and ch == ' ' and self.qthread.queue.empty():
