@@ -462,14 +462,23 @@ class PyCdb(object):
         return mem
 
     def read_u32(self, address):
-        buf = self.read_mem(address, 4)[0]
-        return struct.unpack('<L', self.read_mem(address, 4))[0]
+        try:
+            buf = self.read_mem(address, 4)[0]
+            return struct.unpack('<L', self.read_mem(address, 4))[0]
+        except IndexError:
+            return None
 
     def read_u16(self, address):
-        return struct.unpack('<H', self.read_mem(address, 2))[0]
+        try:
+            return struct.unpack('<H', self.read_mem(address, 2))[0]
+        except IndexError:
+            return None
 
     def read_u8(self, address):
-        return self.read_mem(address, 1)
+        try:
+            return self.read_mem(address, 1)
+        except IndexError:
+            return None
 
     def write_mem(self, address, buf):
         if type(address) in (int, long):
