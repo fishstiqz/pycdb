@@ -412,6 +412,30 @@ class PyCdb(object):
         else:
             return None
 
+    def backtrace(self, frames=None):
+        if frames is None:
+            output = self.execute("k")
+        else:
+            output = self.execute("k %d" % frames)
+
+        # Strip header line
+        return "\n".join(output.split("\n")[1:])
+
+    def cppObjectType(self, ptr):
+        output = self.execute("ln poi(%x)" % ptr)
+        matches = output.split("Exact matches:")
+        if len(matches) != 2:
+            return "Unknown Object"
+        matches = matches[1].strip().split("\n")
+        if len(matches) != 1:
+            return "Unknown Object (multiple matches)"
+
+        obj = matches[0].strip()
+        if not "vftable" in obj:
+            return "Object not recognizable vtable"
+
+        return obj.split("::`vftable")[0]
+
     @property
     def cpu_type(self):
         buf = self.execute('.effmach')
