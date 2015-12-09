@@ -14,6 +14,7 @@ import shlex
 BREAKPOINT_NORMAL       = 1
 BREAKPOINT_UNRESOLVED   = 2
 BREAKPOINT_HARDWARE     = 3
+BREAKPOINT_SYMBOLIC     = 4
 
 # cpu types
 CPU_X86                 = 1
@@ -576,12 +577,17 @@ class PyCdb(object):
             cmd = 'bu'
         elif bptype == BREAKPOINT_HARDWARE:
             cmd = 'ba %s 1' % bpmode
+        elif bptype == BREAKPOINT_SYMBOLIC:
+            # Try symbolic if bp fails
+            cmd = 'bm'
 
         nums_before = self._get_bp_nums()
         output = self.execute('%s %s' % (cmd, address))
         nums_after = self._get_bp_nums()
         added_num = list(set(nums_after) - set(nums_before))
         if len(added_num) == 0:
+            if cmd == 'bp':
+                return self.breakpoint(address, handler, BREAKPOINT_SYMBOLIC, bpmode)
             raise PyCdbException(output.strip())
         else:
             bpnum = added_num[0]
