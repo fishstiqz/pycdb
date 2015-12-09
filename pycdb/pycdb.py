@@ -423,6 +423,8 @@ class PyCdb(object):
         return "\n".join(output.split("\n")[1:])
 
     def cppObjectType(self, ptr):
+        if isinstance(ptr, str):
+            ptr = int(ptr, 16)
         output = self.execute("ln poi(%x)" % ptr)
         matches = output.split("Exact matches:")
         if len(matches) != 2:
