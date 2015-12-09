@@ -396,8 +396,6 @@ class PyCdb(object):
         self.pipe.kill()
 
     def interrupt(self):
-        print "interrupting"
-        # self.qthread.pipe.send_signal(subprocess.signal.CTRL_BREAK_EVENT)
         self.pipe.send_signal(subprocess.signal.CTRL_BREAK_EVENT)
 
     def delayed_break(self, seconds):
