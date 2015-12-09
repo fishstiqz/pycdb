@@ -261,7 +261,7 @@ class PyCdb(object):
 
     def _create_pipe(self, cmdline):
         self.pipe = subprocess.Popen(cmdline,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         self.qthread = CdbReaderThread(self.pipe)
         self.qthread.start()
         self.pipe_closed = False
@@ -394,6 +394,19 @@ class PyCdb(object):
     def quit(self):
         self.write_pipe('q\r\n')
         self.pipe.kill()
+
+    def interrupt(self):
+        print "interrupting"
+        # self.qthread.pipe.send_signal(subprocess.signal.CTRL_BREAK_EVENT)
+        self.pipe.send_signal(subprocess.signal.CTRL_BREAK_EVENT)
+
+    def delayed_break(self, seconds):
+        def do_break():
+            time.sleep(seconds)
+            self.interrupt()
+        t = threading.Thread(target=do_break)
+        t.daemon = True
+        t.start()
 
     def execute(self, command):
         if not self.is_debuggable:
