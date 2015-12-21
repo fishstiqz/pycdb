@@ -626,9 +626,18 @@ class PyCdb(object):
         address = int(m.group(1), 16)
         m = re.search(r'ExceptionCode: ([0-9A-Fa-f]+) \(([^\)]+)\)', output)
         if not m:
-            return None
-        code = int(m.group(1), 16)
-        desc = m.group(2)
+            # If it's an exeception without a description (FastFailException for example)
+            # Try again without looking for description
+            m = re.search(r'ExceptionCode: ([0-9A-Fa-f]+)', output)
+            if not m:
+                return None
+            else:
+                # debugregister made me do this, not my fault
+                code = int(m.group(1), 16)
+                desc = "Unknown"
+        else:
+            code = int(m.group(1), 16)
+            desc = m.group(2)
         ex = ExceptionEvent(address, code, desc)
         m = re.search(r'NumberParameters: ([0-9]+)', output)
         num_params = int(m.group(1))
