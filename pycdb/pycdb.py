@@ -150,7 +150,6 @@ class CdbReaderThread(threading.Thread):
             self.queue.put(OutputEvent(ch))
             curline += ch
             if ch == '\n':
-                print(curline)
                 self.process_line(curline)
                 curline = ''
 
