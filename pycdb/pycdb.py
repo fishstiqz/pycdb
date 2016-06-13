@@ -1,14 +1,14 @@
 #!/usr/bin/python
 
 import os
-import sys
-import subprocess
-import threading
-import time
 import Queue
 import re
-import struct
 import shlex
+import struct
+import subprocess
+import sys
+import threading
+import time
 
 # breakpoint types
 BREAKPOINT_NORMAL       = 1
@@ -25,6 +25,12 @@ COMMAND_FINISHED_MARKER = "CMDH@ZF1N1SH3D"
 
 # max buffer size for output
 OUTPUT_BUF_MAX          = 5*1024*1024
+
+def get_arch():
+    """
+    Return either 32 or 64
+    """
+    return struct.calcsize("P") * 8
 
 def parse_addr(addrstr):
     """
@@ -220,6 +226,7 @@ class PyCdb(object):
         self.initial_command = ''
         self.debug_children = False
         self.initial_breakpoint = True
+        self.hide_debugger = False
         self.final_breakpoint = False
         self.break_on_load_modules = False
         self.pipe_closed = True
@@ -274,6 +281,9 @@ class PyCdb(object):
 
     def _run_cdb(self, arguments):
         cmdline = [self.cdb_path]
+
+        self._do_hide_debugger()
+
         if len(self.cdb_cmdline) > 0:
             cmdline += self.cdb_cmdline
         if self.debug_children:
@@ -285,8 +295,46 @@ class PyCdb(object):
         if self.break_on_load_modules:
             cmdline += ['-xe', 'ld']
         if self.initial_command and len(self.initial_command) > 0:
-            cmdline += ['-c', '"%s"' % (self.initial_command)]
+            cmdline += ['-c', self.initial_command]
+        print(" ".join(cmdline + arguments))
         self._create_pipe(cmdline + arguments)
+
+    def _do_hide_debugger(self):
+        """
+        Modify startup options to hide the debugger (patch IsDebugPresent to
+        always return 0).
+
+        Note that there may be some unexpected breakpoints if self.debug_children
+        is also set.
+        """
+        if not self.hide_debugger:
+            return
+
+        initial_commands = []
+        if self.initial_command is not None and len(self.initial_command) > 0:
+            initial_commands.append(self.initial_command)
+
+        if get_arch() == 32:
+            # patches kernelbase!IsDebuggerPresent to be
+            #     xor eax,eax
+            #     ret
+            initial_commands.insert(0, "eb kernelbase!IsDebuggerPresent 31 c0 c3")
+        else:
+            # haven't tested the above patch on x64 systems yet, maybe it
+            # will work?
+            raise NotImplemented("the 'hide debugger' functionality is not yet implemented on x64 platforms")
+
+        add_continue = False
+        if not self.initial_breakpoint:
+            # we want to patch IsDebuggerPresent as soon as the process starts, so
+            # we need the initial breakpoint
+            self.initial_breakpoint = True
+            add_continue = True
+
+        if add_continue:
+            initial_commands.append("g")
+
+        self.initial_command = " ; ".join(initial_commands)
 
     def closed(self):
         """
