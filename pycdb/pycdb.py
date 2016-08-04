@@ -442,6 +442,7 @@ class PyCdb(object):
     def quit(self):
         self.write_pipe('q\r\n')
         self.pipe.kill()
+        self.is_debuggable = True
 
     def interrupt(self):
         self.pipe.send_signal(subprocess.signal.CTRL_BREAK_EVENT)
