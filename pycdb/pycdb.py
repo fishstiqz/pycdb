@@ -631,7 +631,8 @@ class PyCdb(object):
                 bpnums.append(int(elems[0]))
         return bpnums
 
-    def breakpoint(self, address, handler=None, bptype=BREAKPOINT_NORMAL, bpmode="e"):
+    def breakpoint(self, address, handler=None, bptype=BREAKPOINT_NORMAL, bpmode="e", condition=""):
+
         if type(address) in (int, long):
             address = addr_to_hex(address)
         cmd = 'bp'
@@ -644,12 +645,20 @@ class PyCdb(object):
             cmd = 'bm'
 
         nums_before = self._get_bp_nums()
-        output = self.execute('%s %s' % (cmd, address))
+        if len(condition) > 0:
+            if not (condition.startswith("j") or condition.startswith(".if")):
+                # Add boiler plate
+                condition = "j %s ''; 'gc' " % condition
+            output = self.execute('%s %s "%s"' % (cmd, address, condition))
+
+        else:
+            output = self.execute('%s %s' % (cmd, address))
+
         nums_after = self._get_bp_nums()
         added_num = list(set(nums_after) - set(nums_before))
         if len(added_num) == 0:
             if cmd == 'bp':
-                return self.breakpoint(address, handler, BREAKPOINT_SYMBOLIC, bpmode)
+                return self.breakpoint(address, handler, BREAKPOINT_SYMBOLIC, bpmode, condition)
             raise PyCdbException(output.strip())
         else:
             bpnum = added_num[0]
