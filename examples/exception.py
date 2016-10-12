@@ -116,7 +116,7 @@ class ExceptionCatcher(PyCdb):
                     if exception.code in  self.ignore_exceptions:
                         print "ignoring exception: %08X" % (exception.code)
                     else:
-                        print "Exception %08X (%s) occured at %08X" % (exception.code, exception.description, exception.address)
+                        print "Exception %08X (%s) occurred at %08X" % (exception.code, exception.description, exception.address)
 
                         print ""
                         print "Disas:"
