@@ -701,7 +701,17 @@ class PyCdb(object):
 
     def breakpoint_remove(self, bpnum):
         self.execute("bc %u" % (bpnum))
+    
+    # convience methods
+    def bp(self, address, handler=None, condition=""):
+        return self.breakpoint(address, handler, bptype=BREAKPOINT_NORMAL,
+                condition=condition)
 
+    def bu(self, address, handler=None, condition=""):
+        return self.breakpoint(address, handler, bptype=BREAKPOINT_UNRESOLVED,
+                condition=condition)
+
+    # extract info about the breakpoint
     def breakpoint_info(self, bpnum):
         line = self.execute('bl %u' % (bpnum))
         line = line.strip()
