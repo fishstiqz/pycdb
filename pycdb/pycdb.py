@@ -556,20 +556,6 @@ class PyCdb(object):
     def registers(self):
         return Registers(self)
 
-    '''
-    @property
-    def registers(self):
-        """
-        return a map of registers and their current values.
-        """
-        map = AttrDict(setterCallback=self.setRegister)
-        regs = self.execute("r")
-        all = re.findall(r'([A-Za-z0-9]+)\=([0-9A-Fa-f]+)', regs)
-        for entry in all:
-            map[entry[0]] = int(entry[1], 16)
-        return map
-    '''
-
     def setRegister(self, register, value):
         self.execute("r @%s=%x" % (register, value))
 
