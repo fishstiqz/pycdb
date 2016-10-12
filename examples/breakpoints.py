@@ -19,12 +19,13 @@ class BreakpointExample(PyCdb):
             0x4000001f              # wow64 exception
         ]
 
-    def on_create_window_ex_w(self, bpnum):
-        print "BREAKPOINT CreateWindowExW"
+    def on_create_window_ex_w(self, event):
+        print "BREAKPOINT #%u CreateWindowExW" % (event.bpnum)
         print self.execute('u @$scopeip L10')
 
-    def on_create_thread(self, bpnum):
-        print "BREAKPOINT CreateThread"
+    def on_create_thread(self, event):
+        print "BREAKPOINT #%u CreateThread" % (event.bpnum)
+        print self.breakpoint_info(event.bpnum)
         print self.execute('~.')
         print self.execute('kb 3')
 

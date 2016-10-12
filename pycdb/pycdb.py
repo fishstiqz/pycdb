@@ -466,7 +466,7 @@ class PyCdb(object):
         if bpnum in self.breakpoints:
             handler, address = self.breakpoints[bpnum]
             if handler:
-                handler(bpnum)
+                handler(event)
                 # continue execution
                 # self.continue_debugging()
                 handled = True
@@ -734,7 +734,7 @@ class PyCdb(object):
             if name[0] == '(' and name[-1] == ')':
                 name = name[1:-1]
         else:
-            addr = int(elems[2], 16)
+            addr = parse_addr(elems[2])
             name = elems[6]
         return BreakpointInfo(num, name, flags, enabled, not unresolved, addr) 
 

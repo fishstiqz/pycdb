@@ -21,7 +21,7 @@ class IEDebugLog(PyCdb):
             0x4000001f              # wow64 exception
         ]
 
-    def on_math_min(self, bpnum):
+    def on_math_min(self, event):
         val = self.read_u32(self.registers.esp + 0x10)
         val = val >> 1
         if val == 0x111111:

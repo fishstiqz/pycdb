@@ -23,7 +23,7 @@ class ExceptionCatcher(PyCdb):
             0x40080201,0x80010108, 0x8001010D, 0x6A6, 0x8001010D, 0x40080201
         ]
 
-    def on_create_window_ex_w(self, bpnum):
+    def on_create_window_ex_w(self, event):
         """
         when this breakpoint is hit, write some code at the current
         instruction pointer that will cause an access violation
