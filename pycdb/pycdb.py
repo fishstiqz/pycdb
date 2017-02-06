@@ -64,6 +64,9 @@ class PyCdbPipeClosedException(PyCdbException):
         else:
             return "cdb pipe is closed: last message was: %s" % (self.output)
 
+class PyCdbTimeoutException(PyCdbException):
+    pass
+
 class AttrDict(dict):
     def __getattr__(self, key):
         return self[key]
@@ -159,6 +162,7 @@ class CdbReaderThread(threading.Thread):
         threading.Thread.__init__(self)
         self.queue = Queue.Queue()
         self.pipe = pipe
+        self.stop_reading = False
 
     def process_line(self, line):
         if line.startswith("ModLoad: "):
@@ -174,7 +178,7 @@ class CdbReaderThread(threading.Thread):
         #print 'ReaderThread.run()'
         curline = ''
         # read from the pipe
-        while True:
+        while not self.stop_reading:
             ch = self.pipe.stdout.read(1)
             #print 'ReaderThread.run(): read %s' % (ch)
             if not ch:
@@ -331,7 +335,7 @@ class PyCdb(object):
             cmdline += ['-xe', 'ld']
         if self.initial_command and len(self.initial_command) > 0:
             cmdline += ['-c', self.initial_command]
-        print(" ".join(cmdline + arguments))
+        #print(" ".join(cmdline + arguments))
         self._create_pipe(cmdline + arguments)
 
     def _do_hide_debugger(self):
@@ -391,6 +395,8 @@ class PyCdb(object):
                 event = self.qthread.queue.get(True, timeout)
             except Queue.Empty:
                 self.is_debuggable = False
+                if timeout:
+                    raise PyCdbTimeoutException()
                 break
 
             #print "read_to_prompt: %s" % (event)
@@ -483,7 +489,12 @@ class PyCdb(object):
         self._run_cdb(['-p', str(pid)])
 
     def quit(self):
-        self.write_pipe('q\r\n')
+        try:
+            self.write_pipe('q\r\n')
+        except IOError as ioe:
+            if ioe.errno != 22: # ignore EINVAL
+                raise ioe
+        self.qthread.stop_reading = True
         self.pipe.kill()
         self.is_debuggable = True
 
@@ -577,6 +588,13 @@ class PyCdb(object):
             rem -= chunk
         return mem
 
+    def read_u64(self, address):
+        try:
+            buf = self.read_mem(address, 8)[0]
+            return struct.unpack('<Q', self.read_mem(address, 8))[0]
+        except IndexError:
+            return None
+
     def read_u32(self, address):
         try:
             buf = self.read_mem(address, 4)[0]
@@ -592,9 +610,21 @@ class PyCdb(object):
 
     def read_u8(self, address):
         try:
+            return struct.unpack('<B', self.read_mem(address, 1))[0]
+        except IndexError:
+            return None
+
+    def read_char(self, address):
+        try:
             return self.read_mem(address, 1)
         except IndexError:
             return None
+
+    def read_pointer(self, address):
+        if self.cpu_type == CPU_X64:
+            return self.read_u64(address)
+        else:
+            return self.read_u32(address)
 
     def write_mem(self, address, buf):
         if type(address) in (int, long):
@@ -603,6 +633,9 @@ class PyCdb(object):
         for b in buf:
             bytes += b.encode('hex') + ' '
         return self.execute('eb %s %s' % (address, bytes))
+
+    def write_u64(self, address, val):
+        return write_mem(address, struct.pack('<Q', val))
 
     def write_u32(self, address, val):
         return write_mem(address, struct.pack('<L', val))
@@ -649,6 +682,35 @@ class PyCdb(object):
             end = parse_addr(elems[1])
             map[elems[2].lower()] = [base, end-base, elems[3].strip()]
         return map
+
+    def module_info_from_addr(self, address):
+        mods = self.modules()
+        for name in mods:
+            modinfo = mods[name]
+            base = modinfo[0]
+            end = base + modinfo[1]
+            if address >= base and address <= end:
+                return self.module_info(name)
+        return None
+
+    def module_info(self, modname):
+        buf = self.execute("lm vm %s" % (modname))
+        lines = buf.splitlines()
+        if len(lines) < 2:
+            return None
+        modinfo = {}
+        # parse the first line
+        elems = re.split(r'\s+', lines[1], 3)
+        modinfo['module_base'] = parse_addr(elems[0])
+        modinfo['module_end'] = parse_addr(elems[1])
+        modinfo['module_name'] = elems[2].strip()
+        for line in lines[2:]:
+            elems = line.split(':', 1)
+            tok = elems[0].strip().replace(" ", "_").lower()
+            val = elems[1].strip()
+            modinfo[tok] = val
+        return modinfo
+
 
     def _get_bp_nums(self):
         bpnums = []
@@ -827,7 +889,7 @@ class PyCdb(object):
             self.on_exception(event)
         return event
 
-    def shell(self):
+    def shell(self, debug=False):
         print "Dropping to cdb shell.  'quit' to exit, 'pdb' for python debugger."
         p = 'cdb> '
         last_input = ''
@@ -846,7 +908,7 @@ class PyCdb(object):
                         # nothing was entered, repeat last command like windbg
                         input = last_input
                     self.write_pipe(input)
-                    output = self.read_to_prompt()
+                    output = self.read_to_prompt(debug=debug)
                     sys.stdout.write(output)
                 last_input = input
             except EOFError:
