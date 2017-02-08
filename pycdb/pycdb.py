@@ -521,9 +521,13 @@ class PyCdb(object):
 
     def evaluate(self, expression):
         output = self.execute("? " + expression)
-        m = re.match(r'Evaluate expression: ([0-9]+) =', output)
+        # take the last line of output as there can be annoying warnings interspersed
+        # like: WARNING: Unable to verify checksum...
+        #print "evaluate(" + expression + "): " + output
+        lastline = output.splitlines()[-1]
+        m = re.match(r'Evaluate expression: (\-?[0-9]+) = ([0-9A-Fa-f]+)', lastline)
         if m:
-            return int(m.group(1))
+            return parse_addr(m.group(2))
         else:
             return None
 
@@ -678,9 +682,10 @@ class PyCdb(object):
         output = self.execute('lmf')
         for line in output.splitlines()[1:]:
             elems = re.split(r'\s+', line, 3)
-            base = parse_addr(elems[0])
-            end = parse_addr(elems[1])
-            map[elems[2].lower()] = [base, end-base, elems[3].strip()]
+            if elems and len(elems) >= 4:
+                base = parse_addr(elems[0])
+                end = parse_addr(elems[1])
+                map[elems[2].lower()] = [base, end-base, elems[3].strip()]
         return map
 
     def module_info_from_addr(self, address):
