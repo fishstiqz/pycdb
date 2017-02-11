@@ -135,9 +135,14 @@ class ExceptionEvent(DebuggerEvent):
         self.code = code
         self.description = description
         self.params = []
+        self.details = ""
+        self.fault_addr = None
     def __str__(self):
-        return "ExceptionEvent(%x,%x): %08X: code=%08X: %s" % (
-                self.pid, self.tid, self.address, self.code, self.description)
+        s = "ExceptionEvent(%x,%x): %08X: code=%08X: %s" % (
+            self.pid, self.tid, self.address, self.code, self.description)
+        if self.details:
+            s += ": " + self.details
+        return s    
 
 
 class BreakpointInfo(object):
@@ -813,16 +818,16 @@ class PyCdb(object):
 
         m = re.search(r'ExceptionAddress: ([0-9A-Fa-f]+)', output)
         if m:
-            address = int(m.group(1), 16)
+            address = parse_addr(m.group(1))
 
         m = re.search(r'ExceptionCode: ([0-9A-Fa-f]+) \(([^\)]+)\)', output)
         if m:
-            code = int(m.group(1), 16)
+            code = parse_addr(m.group(1))
             desc = m.group(2)
         else:
             m = re.search(r'ExceptionCode: ([0-9A-Fa-f]+)', output)
             if m:
-                code = int(m.group(1), 16)
+                code = parse_addr(m.group(1))
 
         ex = ExceptionEvent(address, code, desc)
         m = re.search(r'NumberParameters: ([0-9]+)', output)
@@ -832,8 +837,18 @@ class PyCdb(object):
             m = re.search(r'Parameter\[%u\]: ([0-9A-Fa-f]+)'%(n), output)
             if not m:
                 return None
-            params.append(int(m.group(1), 16))
+            params.append(parse_addr(m.group(1)))
         ex.params = params
+
+        # try to read the text details line
+        lastline = output.splitlines()[-1].strip()
+        if not lastline.startswith("Parameter["):
+            ex.details = lastline
+            # try to parse the details line to extract the address that caused the exception
+            m = re.search(r'address ([0-9A-Fa-f]+)', ex.details)
+            if m:
+                ex.fault_addr = parse_addr(m.group(1))
+
         return ex
 
     def _breakpoint_info(self, event_desc):
