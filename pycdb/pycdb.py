@@ -26,7 +26,7 @@ COMMAND_FINISHED_MARKER = "CMDH@ZF1N1SH3D"
 # max buffer size for output
 OUTPUT_BUF_MAX          = 5*1024*1024
 
-DEBUG_INOUT = True 
+DEBUG_INOUT = False 
 
 def get_arch():
     """
