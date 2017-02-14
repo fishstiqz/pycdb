@@ -26,7 +26,7 @@ COMMAND_FINISHED_MARKER = "CMDH@ZF1N1SH3D"
 # max buffer size for output
 OUTPUT_BUF_MAX          = 5*1024*1024
 
-DEBUG_INOUT = False 
+DEBUG_INOUT = True 
 
 def get_arch():
     """
@@ -395,12 +395,38 @@ class PyCdb(object):
         buf = ''
         lastch = None
 
+        end_time = None
+        if timeout:
+            end_time = time.time() + timeout
+        remaining_time = timeout
+
         while True:
+
+            # lets check to see if we have timed out before we do anything
+            # 
+            # the logic here is that queue.get() only times out on events placed
+            # into the queue but NOT on whether or not a prompt has been read, which
+            # is the job of THIS function. So, if we have been sitting in this while
+            # loop reading OutputEvents continuously (debugging outputting lots of data)
+            # we will spin forever w/o timing out. To fix, we just keep track of
+            # when we started fix the queue_timeout appropriately as well as check it
+            # to see if we are done each time through the loop
+
+            if timeout:
+                now = time.time()
+                remaining_time = end_time - now
+                if now > end_time:
+                    # we've been in this loop for too long, timeout!
+                    print "timing out in read_to_prompt before calling queue.get()!"
+                    raise PyCdbTimeoutException()
+     
             try:
-                event = self.qthread.queue.get(True, timeout)
+                event = self.qthread.queue.get(True, remaining_time)
             except Queue.Empty:
                 self.is_debuggable = False
                 if timeout:
+                    # if the queue.get() times out, we definitely have a timeout
+                    print "timing out in read_to_prompt from call to queue.get()!"
                     raise PyCdbTimeoutException()
                 break
 
