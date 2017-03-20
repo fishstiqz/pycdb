@@ -38,6 +38,8 @@ def parse_addr(addrstr):
     """
     parse 64 or 32-bit address from string into int
     """
+    if addrstr.startswith('??'):
+        return 0
     return int(addrstr.replace('`',''), 16)
 
 def addr_to_hex(addr):
@@ -519,12 +521,15 @@ class PyCdb(object):
     def attach(self, pid):
         self._run_cdb(['-p', str(pid)])
 
-    def quit(self):
+    def _quit(self):
         try:
             self.write_pipe('q\r\n')
         except IOError as ioe:
             if ioe.errno != 22: # ignore EINVAL
                 raise ioe
+
+    def quit(self):
+        self._quit()
         self.qthread.stop_reading = True
         self.pipe.kill()
         self.is_debuggable = True
@@ -556,7 +561,7 @@ class PyCdb(object):
         # like: WARNING: Unable to verify checksum...
         #print "evaluate(" + expression + "): " + output
         lastline = output.splitlines()[-1]
-        m = re.match(r'Evaluate expression: (\-?[0-9]+) = ([0-9A-Fa-f]+)', lastline)
+        m = re.match(r'Evaluate expression: (\-?[0-9]+) = ([0-9A-Fa-f`]+)', lastline)
         if m:
             return parse_addr(m.group(2))
         else:
@@ -842,7 +847,7 @@ class PyCdb(object):
         desc = "Unknown"
         params = []
 
-        m = re.search(r'ExceptionAddress: ([0-9A-Fa-f]+)', output)
+        m = re.search(r'ExceptionAddress: ([0-9A-Fa-f`]+)', output)
         if m:
             address = parse_addr(m.group(1))
 
@@ -860,7 +865,7 @@ class PyCdb(object):
         num_params = int(m.group(1))
         params = []
         for n in xrange(num_params):
-            m = re.search(r'Parameter\[%u\]: ([0-9A-Fa-f]+)'%(n), output)
+            m = re.search(r'Parameter\[%u\]: ([0-9A-Fa-f`]+)'%(n), output)
             if not m:
                 return None
             params.append(parse_addr(m.group(1)))
