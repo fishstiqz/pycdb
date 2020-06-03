@@ -11,12 +11,12 @@ setup(
     long_description="""
         A python wrapper for Microsoft's CDB command-line debugger.
     """,
-    # license='MIT', ???
+    license='MIT',
     version='0.1',
-    author='@debugregister',
-    maintainer='@debugregister',
+    author='@fishstiqz',
+    maintainer='@fishstiqz',
     author_email='',
-    url='https://github.com/debugregister/pycdb',
+    url='https://github.com/fishstiqz/pycdb',
     platforms='Microsoft Windows',
     install_requires = open(os.path.join(os.path.dirname(__file__), "requirements.txt")).read().split("\n"),
     classifiers = [
