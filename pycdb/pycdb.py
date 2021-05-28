@@ -1,7 +1,8 @@
 #!/usr/bin/python
+from builtins import input, range
 
 import os
-import Queue
+import queue
 import re
 import shlex
 import struct
@@ -9,6 +10,8 @@ import subprocess
 import sys
 import threading
 import time
+
+PYTHON3 = sys.version_info >= (3, 0)
 
 # breakpoint types
 BREAKPOINT_NORMAL       = 1
@@ -24,9 +27,10 @@ CPU_X64                 = 2
 COMMAND_FINISHED_MARKER = "CMDH@ZF1N1SH3D"
 
 # max buffer size for output
-OUTPUT_BUF_MAX          = 5*1024*1024
+OUTPUT_BUF_MAX = 5 * 1024 * 1024
 
-DEBUG_INOUT = False 
+DEBUG_INOUT = False
+
 
 def get_arch():
     """
@@ -34,40 +38,52 @@ def get_arch():
     """
     return struct.calcsize("P") * 8
 
+
 def parse_addr(addrstr):
     """
     parse 64 or 32-bit address from string into int
     """
     if addrstr.startswith('??'):
         return 0
-    return int(addrstr.replace('`',''), 16)
+    return int(addrstr.replace('`', ''), 16)
 
-def addr_to_hex(addr):
+
+def addr_to_hex(address):
     """
     convert an address as int or long into a string
     """
-    str = hex(addr)
-    if str[-1] == 'L':
-        return str[:-1]
-    return str
+    string = hex(address)
+    if string[-1] == 'L':
+        return string[:-1]
+    return string
+
 
 class PyCdbException(Exception):
     pass
 
+
 class PyCdbInternalErrorException(PyCdbException):
-    pass
+    def __init__(self, output=None):
+        self.output = output
+
+    def __str__(self):
+        return "PyCdbInternalErrorException: %s" % self.output
+
 
 class PyCdbPipeClosedException(PyCdbException):
     def __init__(self, output=None):
         self.output = output
+
     def __str__(self):
         if not self.output or len(self.output) == 0:
             return "cdb pipe is closed"
         else:
-            return "cdb pipe is closed: last message was: %s" % (self.output)
+            return "cdb pipe is closed: last message was: %s" % self.output
+
 
 class PyCdbTimeoutException(PyCdbException):
     pass
+
 
 class AttrDict(dict):
     def __getattr__(self, key):
@@ -79,30 +95,38 @@ class AttrDict(dict):
         else:
             self[key] = value
 
+
 class CdbEvent(object):
     pass
+
 
 class InternalErrorEvent(CdbEvent):
     def __init__(self, output):
         self.output = output
+
     def __str__(self):
-        return "InternalErrorEvent: %s" % (self.output)
+        return "InternalErrorEvent: %s" % self.output
+
 
 class OutputEvent(CdbEvent):
     def __init__(self, output, closed=False):
         self.output = output
+
     def __str__(self):
-        return "OutputEvent: %s" % (self.output)
+        return "OutputEvent: %s" % self.output
+
 
 class PipeClosedEvent(CdbEvent):
     def __str__(self):
         return "PipeClosedEvent"
+
 
 class DebuggerEvent(CdbEvent):
     def __init__(self):
         self.pid = 0
         self.tid = 0
         self.description = ''
+
     def set_base(self, pid=None, tid=None, desc=None):
         if type(pid) == str:
             pid = int(pid, 16)
@@ -111,40 +135,60 @@ class DebuggerEvent(CdbEvent):
         self.pid = pid
         self.tid = tid
         self.description = desc
+
     def __str__(self):
         return "DebuggerEvent(%x,%x)" % (self.pid, self.tid)
 
+
 class LoadModuleEvent(DebuggerEvent):
     def __init__(self, module, base):
+        super(LoadModuleEvent, self).__init__()
         self.module = module
         self.base = base
+
     def __str__(self):
         return "LoadModuleEvent(%x,%x): %s, %08X" % (self.pid, self.tid, self.module, self.base)
 
+
 class BreakpointEvent(DebuggerEvent):
     def __init__(self, bpnum):
+        super(BreakpointEvent, self).__init__()
         self.bpnum = bpnum
+
     def __str__(self):
         return "BreakpointEvent(%x,%x): %u" % (self.pid, self.tid, self.bpnum)
+
+
+class ExitProcessEvent(DebuggerEvent):
+    def __init__(self, exit_code):
+        super(ExitProcessEvent, self).__init__()
+        self.exit_code = exit_code
+
+    def __str__(self):
+        return "BreakpointEvent(): %u" % self.exit_code
+
 
 class ExceptionEvent(DebuggerEvent):
     """
     class that represents an exception raised in the debuggee, such
     as an access violation. not to be confused with a python exception
     """
+
     def __init__(self, address, code, description):
+        super(ExceptionEvent, self).__init__()
         self.address = address
         self.code = code
         self.description = description
         self.params = []
         self.details = ""
         self.fault_addr = None
+
     def __str__(self):
         s = "ExceptionEvent(%x,%x): %08X: code=%08X: %s" % (
             self.pid, self.tid, self.address, self.code, self.description)
         if self.details:
             s += ": " + self.details
-        return s    
+        return s
 
 
 class BreakpointInfo(object):
@@ -155,49 +199,66 @@ class BreakpointInfo(object):
         self.enabled = enabled
         self.resolved = resolved
         self.address = address
+
     def __str__(self):
         s = "Breakpoint #%u: %s (%s: %s,%s)" % (self.num, self.name,
-                self.flags, 
-                "enabled" if self.enabled else "disabled",
-                "resolved" if self.resolved else "unresolved")
+                                                self.flags,
+                                                "enabled" if self.enabled else "disabled",
+                                                "resolved" if self.resolved else "unresolved")
         if self.address:
-            s += " @ %08X" % (self.address)
+            s += " @ %08X" % self.address
         return s
+
 
 class CdbReaderThread(threading.Thread):
     def __init__(self, pipe):
-        threading.Thread.__init__(self)
-        self.queue = Queue.Queue()
+        super(CdbReaderThread, self).__init__()
+        self.setDaemon(True)
+        self.queue = queue.Queue()
         self.pipe = pipe
         self.stop_reading = False
 
     def process_line(self, line):
+        #print("line:", line)
         if line.startswith("ModLoad: "):
             # stuff a load module event into the queue
             elems = re.split(r'\s+', line, 3)
             base = parse_addr(elems[1])
             end = parse_addr(elems[2])
             self.queue.put(LoadModuleEvent(elems[3].strip(), base))
+        elif "offset expression evaluation failed" in line:
+            self.queue.put(InternalErrorEvent(line))
         elif line.startswith("WaitForEvent failed, Win32 error "):
             self.queue.put(InternalErrorEvent(line))
 
     def run(self):
-        #print 'ReaderThread.run()'
-        curline = ''
+        # print 'ReaderThread.run()'
+        curline = bytes()
         # read from the pipe
         while not self.stop_reading:
             ch = self.pipe.stdout.read(1)
-            #print 'ReaderThread.run(): read %s' % (ch)
+            # print 'ReaderThread.run(): read %s' % ch
             if not ch:
                 # add a closed event to the queue
                 self.queue.put(PipeClosedEvent())
-                #print 'ReaderThread.run(): read nothing'
+                # print 'ReaderThread.run(): read nothing'
                 break
-            self.queue.put(OutputEvent(ch))
+            if PYTHON3:
+                self.queue.put(OutputEvent(ch.decode("ISO-8859-1")))
+            else:
+                self.queue.put(OutputEvent(ch))
             curline += ch
+            if b"debugee initialization failed" in curline.lower() or b"win32 error 0n216" in curline.lower():
+                print("cdb.exe error: \r\n{}".format(curline))
+                self.queue.put(PipeClosedEvent())
+                break
             if ch == '\n':
-                self.process_line(curline)
-                curline = ''
+                if PYTHON3:
+                    self.process_line(curline.decode("ISO-8859-1"))
+                else:
+                    self.process_line(curline)
+                curline = bytes()
+
 
 class Registers(object):
     def __init__(self, dbg):
@@ -205,35 +266,35 @@ class Registers(object):
         self._initialized = True
 
     def get(self, name):
-        buf = self.dbg.execute('r @%s' % (name))
+        buf = self.dbg.execute('r @%s' % name)
         if buf.find('Bad register') != -1:
-            raise AttributeError('Bad register %s' % (name))
+            raise AttributeError('Bad register %s' % name)
         # TODO: implement xmm regs
         m = re.match(r'(.+)=([0-9A-Fa-f]+)', buf)
         if not m:
-            raise AttributeError('Bad register %s (unable to parse value)' % (name))
+            raise AttributeError('Bad register %s (unable to parse value)' % name)
         val = int(m.group(2), 16)
-        #print "Registers.get(%s) => %x" % (name, val)
+        # print "Registers.get(%s) => %x" % (name, val)
         return val
 
     def set(self, name, value):
         # TODO: implement xmm regs
         buf = self.dbg.execute('r @%s=0x%x' % (name, value))
         if buf.find('Bad register') != -1:
-            raise AttributeError('Bad register %s' % (name))
+            raise AttributeError('Bad register %s' % name)
         if buf.find('Syntax error') != -1:
             raise AttributeError('Syntax error %s, %s' % (name, value))
 
     def all(self):
         """
-        return a map of registers and their current values.
+        return a dict of registers and their current values.
         """
-        map = AttrDict()
+        temp_map = AttrDict()
         regs = self.dbg.execute("r")
-        all = re.findall(r'([A-Za-z0-9]+)\=([0-9A-Fa-f]+)', regs)
-        for entry in all:
-            map[entry[0]] = int(entry[1], 16)
-        return map
+        temp_all = re.findall(r'([A-Za-z0-9]+)\=([0-9A-Fa-f]+)', regs)
+        for entry in temp_all:
+            temp_map[entry[0]] = int(entry[1], 16)
+        return temp_map
 
     def __getattr__(self, item):
         """only called if there *isn't* an attribute with this name"""
@@ -252,14 +313,15 @@ class Registers(object):
     def __getitem__(self, item):
         try:
             return self.get(item)
-        except:
+        except AttributeError:
             raise KeyError(item)
 
     def __setitem__(self, item, value):
         try:
             self.set(item, value)
-        except:
+        except AttributeError:
             raise KeyError(item)
+
 
 class PyCdb(object):
     def __init__(self, cdb_path=None):
@@ -282,27 +344,34 @@ class PyCdb(object):
         self.first_prompt_read = False
         self.cdb_cmdline = []
         self.is_debuggable = True
+        self.read_to_prompt_timeout = 30
 
-    def _find_cdb_path(self):
+    def _find_cdb_path(self, include_x86=True, include_x64=True):
         # build program files paths
-        pg_paths = [ os.environ["PROGRAMFILES"] ]
+        pg_paths = [os.environ["PROGRAMFILES"]]
         if "ProgramW6432" in os.environ:
             self.bit_width = 64
             pg_paths.append(os.environ["ProgramW6432"])
         if "ProgramFiles(x86)" in os.environ:
             pg_paths.append(os.environ["ProgramFiles(x86)"])
         # potential paths to the debugger in program files
-        dbg_paths = [
-            "Windows Kits\\10\\Debuggers\\x64",
-            "Windows Kits\\10\\Debuggers\\x86",
-            "Windows Kits\\8.1\\Debuggers\\x64",
-            "Windows Kits\\8.1\\Debuggers\\x86",
-            "Windows Kits\\8.0\\Debuggers\\x64",
-            "Windows Kits\\8.0\\Debuggers\\x86",
-            "Debugging Tools for Windows (x64)",
-            "Debugging Tools for Windows (x86)",
-            "Debugging Tools for Windows",
-        ]
+        dbg_paths = []
+        if include_x86:
+            dbg_paths += [
+                "Windows Kits\\10\\Debuggers\\x86",
+                "Windows Kits\\8.1\\Debuggers\\x86",
+                "Windows Kits\\8.0\\Debuggers\\x86",
+                "Debugging Tools for Windows (x86)",
+                "Debugging Tools for Windows",
+            ]
+        if include_x64:
+            dbg_paths += [
+                "Windows Kits\\10\\Debuggers\\x64",
+                "Windows Kits\\8.1\\Debuggers\\x64",
+                "Windows Kits\\8.0\\Debuggers\\x64",
+                "Debugging Tools for Windows (x64)",
+                "Debugging Tools for Windows",
+            ]
         # search the paths
         for p in pg_paths:
             for d in dbg_paths:
@@ -314,7 +383,7 @@ class PyCdb(object):
 
     def _create_pipe(self, cmdline):
         self.pipe = subprocess.Popen(cmdline,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         self.qthread = CdbReaderThread(self.pipe)
         self.qthread.start()
         self.pipe_closed = False
@@ -342,7 +411,7 @@ class PyCdb(object):
             cmdline += ['-xe', 'ld']
         if self.initial_command and len(self.initial_command) > 0:
             cmdline += ['-c', self.initial_command]
-        #print(" ".join(cmdline + arguments))
+        # print(" ".join(cmdline + arguments))
         self._create_pipe(cmdline + arguments)
 
     def _do_hide_debugger(self):
@@ -360,24 +429,15 @@ class PyCdb(object):
         if self.initial_command is not None and len(self.initial_command) > 0:
             initial_commands.append(self.initial_command)
 
-        if get_arch() == 32:
-            # patches kernelbase!IsDebuggerPresent to be
-            #     xor eax,eax
-            #     ret
-            initial_commands.insert(0, "eb kernelbase!IsDebuggerPresent 31 c0 c3")
-        else:
-            # haven't tested the above patch on x64 systems yet, maybe it
-            # will work?
-            raise NotImplemented("the 'hide debugger' functionality is not yet implemented on x64 platforms")
+        # patches kernelbase!IsDebuggerPresent to be
+        #     xor eax,eax
+        #     ret
+        initial_commands.insert(0, "eb kernelbase!IsDebuggerPresent 31 c0 c3")
 
-        add_continue = False
         if not self.initial_breakpoint:
             # we want to patch IsDebuggerPresent as soon as the process starts, so
             # we need the initial breakpoint
             self.initial_breakpoint = True
-            add_continue = True
-
-        if add_continue:
             initial_commands.append("g")
 
         self.initial_command = " ; ".join(initial_commands)
@@ -400,12 +460,15 @@ class PyCdb(object):
         end_time = None
         if timeout:
             end_time = time.time() + timeout
+        else:
+            timeout = self.read_to_prompt_timeout
+            end_time = time.time() + timeout
         remaining_time = timeout
 
         while True:
 
             # lets check to see if we have timed out before we do anything
-            # 
+            #
             # the logic here is that queue.get() only times out on events placed
             # into the queue but NOT on whether or not a prompt has been read, which
             # is the job of THIS function. So, if we have been sitting in this while
@@ -419,30 +482,30 @@ class PyCdb(object):
                 remaining_time = end_time - now
                 if now > end_time:
                     # we've been in this loop for too long, timeout!
-                    print "timing out in read_to_prompt before calling queue.get()!"
+                    print("timing out in read_to_prompt before calling queue.get()!")
                     raise PyCdbTimeoutException()
-     
+
             try:
                 event = self.qthread.queue.get(True, remaining_time)
-            except Queue.Empty:
+            except queue.Empty:
                 self.is_debuggable = False
                 if timeout:
                     # if the queue.get() times out, we definitely have a timeout
-                    print "timing out in read_to_prompt from call to queue.get()!"
+                    print("timing out in read_to_prompt from call to queue.get()!")
                     raise PyCdbTimeoutException()
                 break
 
-            #print "read_to_prompt: %s" % (event)
+            # print "read_to_prompt: %s" % event
             if isinstance(event, OutputEvent):
                 self.is_debuggable = True
                 ch = event.output
                 # read one character at a time until we see a '> '
                 if debug:
-                    print 'read: %s' % (ch)
+                    print("read: %s" % ch)
                 buf += ch
 
                 if len(buf) >= self.output_buf_max:
-                    buf = buf[self.output_buf_max/2:]
+                    buf = buf[self.output_buf_max / 2:]
 
                 # look for prompt
                 if lastch == '>' and ch == ' ' and self.qthread.queue.empty():
@@ -456,15 +519,15 @@ class PyCdb(object):
                         # remove the marker and the next prompt
                         # this is ok since the marker is inserted via a newline
                         # and not a semicolon.
-                        #buf = buf.replace("%s\n" % (COMMAND_FINISHED_MARKER), "")
-                        pat = '%s\\n.+' % (COMMAND_FINISHED_MARKER)
+                        # buf = buf.replace("%s\n" % COMMAND_FINISHED_MARKER, "")
+                        pat = '%s\\n.+' % COMMAND_FINISHED_MARKER
                         buf = re.sub(pat, '', buf, flags=re.MULTILINE)
                         break
                 lastch = ch
             elif isinstance(event, InternalErrorEvent):
                 # might be possible to flag this and read the rest of the output
                 # up to a prompt, but its safest to bail out now
-                raise PyCdbInternalErrorException(event.output)
+                raise PyCdbInternalErrorException(buf)
             elif isinstance(event, PipeClosedEvent):
                 self.pipe_closed = True
                 raise PyCdbPipeClosedException(buf)
@@ -477,13 +540,19 @@ class PyCdb(object):
                 if not self.break_on_load_modules:
                     self.on_load_module(event)
         if DEBUG_INOUT:
-            print "<< " + "\n<< ".join(buf.splitlines())
+            print("<< " + "\n<< ".join(buf.splitlines()))
         return buf if keep_output else ""
 
     def write_pipe(self, buf):
         if DEBUG_INOUT:
-            print ">> " + buf
-        self.pipe.stdin.write('%s\r\n.echo %s\r\n' % (buf, COMMAND_FINISHED_MARKER))
+            print(">> " + buf)
+        self.pipe.stdin.write('{}\r\n.echo {}\r\n'.format(buf, COMMAND_FINISHED_MARKER).encode("ISO-8859-1"))
+        try:
+            self.pipe.stdin.flush()
+        except OSError:
+            # handle occasional error `OSError: [Errno 22] Invalid argument`
+            print("Ignoring OSError in flush() call")
+            pass
 
     def continue_debugging(self):
         """
@@ -507,7 +576,7 @@ class PyCdb(object):
             if handler:
                 handler(event)
                 # continue execution
-                # self.continue_debugging()
+                self.continue_debugging()
                 handled = True
         if not handled:
             self.unhandled_breakpoint(bpnum)
@@ -525,7 +594,7 @@ class PyCdb(object):
         try:
             self.write_pipe('q\r\n')
         except IOError as ioe:
-            if ioe.errno != 22: # ignore EINVAL
+            if ioe.errno != 22:  # ignore EINVAL
                 raise ioe
 
     def quit(self):
@@ -541,7 +610,9 @@ class PyCdb(object):
         def do_break():
             time.sleep(seconds)
             self.interrupt()
+
         t = threading.Thread(target=do_break)
+        t.setDaemon(True)
         t.daemon = True
         t.start()
 
@@ -553,13 +624,13 @@ class PyCdb(object):
         self.write_pipe(command)
         # return the entire output except the prompt string
         output = self.read_to_prompt()
-        return "\n".join(output.splitlines()[:-1])+"\n"
+        return "\n".join(output.splitlines()[:-1]) + "\n"
 
     def evaluate(self, expression):
         output = self.execute("? " + expression)
         # take the last line of output as there can be annoying warnings interspersed
         # like: WARNING: Unable to verify checksum...
-        #print "evaluate(" + expression + "): " + output
+        # print "evaluate(" + expression + "): " + output
         lastline = output.splitlines()[-1]
         m = re.match(r'Evaluate expression: (\-?[0-9]+) = ([0-9A-Fa-f`]+)', lastline)
         if m:
@@ -576,7 +647,7 @@ class PyCdb(object):
         # Strip header line
         return "\n".join(output.split("\n")[1:])
 
-    def cppObjectType(self, ptr):
+    def cpp_object_type(self, ptr):
         if isinstance(ptr, str):
             ptr = int(ptr, 16)
         output = self.execute("ln poi(%x)" % ptr)
@@ -588,7 +659,7 @@ class PyCdb(object):
             return "Unknown Object (multiple matches)"
 
         obj = matches[0].strip()
-        if not "vftable" in obj:
+        if "vftable" not in obj:
             return "Object not recognizable vtable"
 
         return obj.split("::`vftable")[0]
@@ -601,26 +672,26 @@ class PyCdb(object):
         elif buf.find('x64') != -1:
             return CPU_X64
         else:
-            raise PyCdbException('unknown architecture: %s' % (buf.strip()))
+            raise PyCdbException('unknown architecture: %s' % buf.strip())
 
     @property
     def registers(self):
         return Registers(self)
 
-    def setRegister(self, register, value):
+    def set_register(self, register, value):
         self.execute("r @%s=%x" % (register, value))
 
-    def read_mem(self, address, len):
+    def read_mem(self, address, length):
         mem = ''
-        rem = len
-        if type(address) in (int, long):
+        rem = length
+        if type(address) == int:
             address = addr_to_hex(address)
-        output = self.execute('db %s L%X' % (address, len))
+        output = self.execute('db %s L%X' % (address, length))
         for line in output.splitlines():
             chunk = 16
             if chunk > rem:
                 chunk = rem
-            elems = re.split(r'[\ -]+', line)[1:1+chunk]
+            elems = re.split(r'[\ -]+', line)[1:1 + chunk]
             for value in elems:
                 if value == '??':
                     break
@@ -630,14 +701,12 @@ class PyCdb(object):
 
     def read_u64(self, address):
         try:
-            buf = self.read_mem(address, 8)[0]
             return struct.unpack('<Q', self.read_mem(address, 8))[0]
         except IndexError:
             return None
 
     def read_u32(self, address):
         try:
-            buf = self.read_mem(address, 4)[0]
             return struct.unpack('<L', self.read_mem(address, 4))[0]
         except IndexError:
             return None
@@ -667,24 +736,24 @@ class PyCdb(object):
             return self.read_u32(address)
 
     def write_mem(self, address, buf):
-        if type(address) in (int, long):
+        if type(address) == int:
             address = addr_to_hex(address)
-        bytes = ''
+        temp_bytes = ''
         for b in buf:
-            bytes += b.encode('hex') + ' '
-        return self.execute('eb %s %s' % (address, bytes))
+            temp_bytes += b.encode('hex') + ' '
+        return self.execute('eb %s %s' % (address, temp_bytes))
 
     def write_u64(self, address, val):
-        return write_mem(address, struct.pack('<Q', val))
+        return self.write_mem(address, struct.pack('<Q', val))
 
     def write_u32(self, address, val):
-        return write_mem(address, struct.pack('<L', val))
+        return self.write_mem(address, struct.pack('<L', val))
 
     def write_u16(self, address, val):
-        return write_mem(address, struct.pack('<H', val))
+        return self.write_mem(address, struct.pack('<H', val))
 
     def write_u8(self, address, val):
-        return write_mem(address, struct.pack('<B', val))
+        return self.write_mem(address, struct.pack('<B', val))
 
     def search(self, value, mode="d", begin=0, end=0xFFFFFFFF):
         if self.bit_width == 64 and end == 0xFFFFFFFF:
@@ -706,23 +775,22 @@ class PyCdb(object):
 
     def search_bytes(self, value, begin=0, end=0xFFFFFFFF):
         """ value should be a string "fe ed fa ce" """
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             return self.search(value, "b", begin, end)
 
-        print "Error: search_bytes called with non-string value."
+        print("Error: search_bytes called with non-string value.")
         return ""
 
-
     def modules(self):
-        map = {}
+        temp_map = {}
         output = self.execute('lmf')
         for line in output.splitlines()[1:]:
             elems = re.split(r'\s+', line, 3)
             if elems and len(elems) >= 4:
                 base = parse_addr(elems[0])
                 end = parse_addr(elems[1])
-                map[elems[2].lower()] = [base, end-base, elems[3].strip()]
-        return map
+                temp_map[elems[2].lower()] = [base, end - base, elems[3].strip()]
+        return temp_map
 
     def module_info_from_addr(self, address):
         mods = self.modules()
@@ -730,12 +798,12 @@ class PyCdb(object):
             modinfo = mods[name]
             base = modinfo[0]
             end = base + modinfo[1]
-            if address >= base and address <= end:
+            if base <= address <= end:
                 return self.module_info(name)
         return None
 
     def module_info(self, modname):
-        buf = self.execute("lm vm %s" % (modname))
+        buf = self.execute("lm vm %s" % modname)
         lines = buf.splitlines()
         if len(lines) < 2:
             return None
@@ -752,7 +820,6 @@ class PyCdb(object):
             modinfo[tok] = val
         return modinfo
 
-
     def _get_bp_nums(self):
         bpnums = []
         output = self.execute('bl')
@@ -764,7 +831,7 @@ class PyCdb(object):
         return bpnums
 
     def breakpoint(self, address, handler=None, bptype=BREAKPOINT_NORMAL, bpmode="e", condition=""):
-        if type(address) in (int, long):
+        if type(address) == int:
             address = addr_to_hex(address)
         cmd = 'bp'
         if bptype == BREAKPOINT_UNRESOLVED:
@@ -803,20 +870,20 @@ class PyCdb(object):
         self.execute("be %u" % bpnum)
 
     def breakpoint_remove(self, bpnum):
-        self.execute("bc %u" % (bpnum))
-    
-    # convience methods
+        self.execute("bc %u" % bpnum)
+
+    # convenience methods
     def bp(self, address, handler=None, condition=""):
         return self.breakpoint(address, handler, bptype=BREAKPOINT_NORMAL,
-                condition=condition)
+                               condition=condition)
 
     def bu(self, address, handler=None, condition=""):
         return self.breakpoint(address, handler, bptype=BREAKPOINT_UNRESOLVED,
-                condition=condition)
+                               condition=condition)
 
     # extract info about the breakpoint
     def breakpoint_info(self, bpnum):
-        line = self.execute('bl %u' % (bpnum))
+        line = self.execute('bl %u' % bpnum)
         line = line.strip()
         elems = re.split(r'\s+', line)
         if len(elems) == 0 or len(elems[0]) == 0:
@@ -825,8 +892,6 @@ class PyCdb(object):
         flags = elems[1]
         unresolved = 'u' in flags
         enabled = 'e' in flags
-        addr = None
-        name = None
         if unresolved:
             addr = None
             name = elems[4]
@@ -835,7 +900,7 @@ class PyCdb(object):
         else:
             addr = parse_addr(elems[2])
             name = elems[6]
-        return BreakpointInfo(num, name, flags, enabled, not unresolved, addr) 
+        return BreakpointInfo(num, name, flags, enabled, not unresolved, addr)
 
     def _exception_info(self):
         output = self.execute('.exr -1')
@@ -845,7 +910,6 @@ class PyCdb(object):
         address = 0
         code = 0
         desc = "Unknown"
-        params = []
 
         m = re.search(r'ExceptionAddress: ([0-9A-Fa-f`]+)', output)
         if m:
@@ -864,17 +928,17 @@ class PyCdb(object):
         m = re.search(r'NumberParameters: ([0-9]+)', output)
         num_params = int(m.group(1))
         params = []
-        for n in xrange(num_params):
-            m = re.search(r'Parameter\[%u\]: ([0-9A-Fa-f`]+)'%(n), output)
+        for n in range(num_params):
+            m = re.search(r'Parameter\[%u\]: ([0-9A-Fa-f`]+)' % n, output)
             if not m:
                 return None
             params.append(parse_addr(m.group(1)))
         ex.params = params
 
         # try to read the text details line
-        lastline = output.splitlines()[-1].strip()
-        if not lastline.startswith("Parameter["):
-            ex.details = lastline
+        last_line = output.splitlines()[-1].strip()
+        if not last_line.startswith("Parameter["):
+            ex.details = last_line
             # try to parse the details line to extract the address that caused the exception
             m = re.search(r'address ([0-9A-Fa-f]+)', ex.details)
             if m:
@@ -882,16 +946,18 @@ class PyCdb(object):
 
         return ex
 
-    def _breakpoint_info(self, event_desc):
+    @staticmethod
+    def _breakpoint_info(event_desc):
         m = re.search(r'Hit breakpoint ([0-9]+)', event_desc)
         if not m:
             return None
         bpnum = int(m.group(1))
         bp = BreakpointEvent(bpnum)
-        # print "_breakpoint_info: %s" % (bp)
+        # print "_breakpoint_info: %s" % bp
         return bp
 
-    def _load_module_info(self, event_desc):
+    @staticmethod
+    def _load_module_info(event_desc):
         m = re.search(r'Load module (.*) at ([0-9A-Fa-f`]+)', event_desc)
         if not m:
             return None
@@ -900,17 +966,30 @@ class PyCdb(object):
         lme = LoadModuleEvent(module_path, module_base)
         return lme
 
-    def lastevent(self):
+    @staticmethod
+    def _exit_process_info(event_desc):
+        m = re.search(r'Exit Process .*, code (\d+)', event_desc)
+        if not m:
+            return None
+        exit_code = m.group(1)
+        ep = ExitProcessEvent(exit_code)
+        return ep
+
+    def last_event(self):
         event = None
         output = self.execute('.lastevent')
         m = re.search(r'Last event: ([0-9A-Fa-f]+)\.([0-9A-Fa-f]+)\: (.*)$',
-                output, re.MULTILINE)
+                      output, re.MULTILINE)
         if m:
             pid, tid, desc = m.groups()
             #
             # what type of event was this?
             #
-            while True: # always breaks at end
+            while True:  # always breaks at end
+                # did the process exit?
+                event = self._exit_process_info(desc)
+                if event:
+                    break
                 # was this a breakpoint?
                 event = self._breakpoint_info(desc)
                 if event:
@@ -931,7 +1010,7 @@ class PyCdb(object):
     def process_event(self):
         if not self.is_debuggable:
             return None
-        event = self.lastevent()
+        event = self.last_event()
         if type(event) == BreakpointEvent:
             self.on_breakpoint(event)
         elif type(event) == LoadModuleEvent:
@@ -941,27 +1020,29 @@ class PyCdb(object):
         return event
 
     def shell(self, debug=False):
-        print "Dropping to cdb shell.  'quit' to exit, 'pdb' for python debugger."
+        print("Dropping to cdb shell.  'quit' to exit, 'pdb' for python debugger.")
         p = 'cdb> '
         last_input = ''
         while True:
             try:
-                input = raw_input(p)
-                input_st = input.strip().lower()
+                temp_input = input(p)
+                input_st = temp_input.strip().lower()
                 p = ''
                 if input_st == 'quit':
                     break
                 elif input_st == 'pdb':
-                    import pdb; pdb.set_trace()
+                    import pdb
+                    pdb.set_trace()
                     p = 'cdb> '
                 else:
                     if len(input_st) == 0:
                         # nothing was entered, repeat last command like windbg
-                        input = last_input
-                    self.write_pipe(input)
+                        temp_input = last_input
+                    self.write_pipe(temp_input)
                     output = self.read_to_prompt(debug=debug)
                     sys.stdout.write(output)
-                last_input = input
+                    sys.stdout.flush()
+                last_input = temp_input
             except EOFError:
                 break
 
