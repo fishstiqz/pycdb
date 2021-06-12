@@ -6,7 +6,7 @@ import getopt
 sys.path.append(os.path.join("..", "pycdb"))
 
 import pycdb
-from pycdb import PyCdb, PyCdbPipeClosedException
+from pycdb import PyCdb, PyCdbPipeClosedException, ExitProcessEvent
 
 
 class BreakpointExample(PyCdb):
@@ -20,20 +20,20 @@ class BreakpointExample(PyCdb):
         ]
 
     def on_create_window_ex_w(self, event):
-        print "BREAKPOINT #%u CreateWindowExW" % (event.bpnum)
-        print self.execute('u @$scopeip L10')
+        print("BREAKPOINT #%u CreateWindowExW" % (event.bpnum))
+        print(self.execute('u @$scopeip L10'))
 
     def on_create_thread(self, event):
-        print "BREAKPOINT #%u CreateThread" % (event.bpnum)
-        print self.breakpoint_info(event.bpnum)
-        print self.execute('~.')
-        print self.execute('kb 3')
+        print("BREAKPOINT #%u CreateThread" % (event.bpnum))
+        print(self.breakpoint_info(event.bpnum))
+        print(self.execute('~.'))
+        print(self.execute('kb 3'))
 
     def on_load_module(self, event):
-        print "MODLOAD: %08X: %s" % (event.base, event.module)
+        print("MODLOAD: %08X: %s" % (event.base, event.module))
         mod = os.path.split(event.module)[1]
         mod = os.path.splitext(mod)[0]
-        print self.execute('lm m %s' % (mod))
+        print(self.execute('lm m %s' % (mod)))
 
     def run(self):
         try:
@@ -56,11 +56,13 @@ class BreakpointExample(PyCdb):
                 # processes the event which will automatically
                 # call any handlers associated with the events
                 event = self.process_event()
-                print "got debugger event: %s" % (event.description)
-
+                print("got debugger event: %s" % (event.description))
 
         except PyCdbPipeClosedException:
-            print "pipe closed"
+            print("pipe closed")
+
+        except ExitProcessEvent:
+            print("program closed")
 
         finally:
             if not self.closed():
@@ -68,14 +70,15 @@ class BreakpointExample(PyCdb):
 
 
 def usage():
-    print "usage: %s [-p|--pid] <pid or program>" % (sys.argv[0])
+    print("usage: %s [-p|--pid] <pid or program>" % (sys.argv[0]))
+
 
 if __name__ == "__main__":
     pid = False
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'p', ['pid'])
     except getopt.GetoptError as err:
-        print str(err)
+        print(str(err))
         usage()
         sys.exit(1)
     for o, a in opts:

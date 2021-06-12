@@ -6,9 +6,10 @@ import getopt
 sys.path.append(os.path.join("..", "pycdb"))
 
 import pycdb
-from pycdb import PyCdb, PyCdbPipeClosedException, ExceptionEvent
+from pycdb import PyCdb, PyCdbPipeClosedException, ExceptionEvent, ExitProcessEvent
 
 SYMPATH = "z:\work\win_syms\symbols"
+
 
 class IEDebugLog(PyCdb):
     """
@@ -28,7 +29,7 @@ class IEDebugLog(PyCdb):
             ptr_data = self.read_u32(self.read_u32(self.registers.esp + 0x14) + 0xC)
             len_data = self.read_u32(self.read_u32(self.registers.esp + 0x14) + 0x8) * 2
             data = self.read_mem(ptr_data, len_data)
-            print data.decode('utf-16le')
+            print(data.decode('utf-16le'))
 
     def run(self):
         try:
@@ -59,48 +60,54 @@ class IEDebugLog(PyCdb):
                 if type(event) == ExceptionEvent:
                     exception = event
                     if exception.code in  self.ignore_exceptions:
-                        print "ignoring exception: %08X" % (exception.code)
+                        print("ignoring exception: %08X" % (exception.code))
                     else:
-                        print "Exception %08X (%s) occured at %08X" % (exception.code, exception.description, exception.address)
+                        print("Exception %08X (%s) occured at %08X" % (exception.code, exception.description, exception.address))
 
-                        print ""
-                        print "Disas:"
+                        print("")
+                        print("Disas:")
                         pre = self.execute('ub @$scopeip L5').strip().splitlines()
                         for l in pre:
-                            print ' '*3 + l.strip()
+                            print(' '*3 + l.strip())
                         post = self.execute('u @$scopeip L5').strip().splitlines()
                         for i, l in enumerate(post):
                             c = ' '*3
                             if i == 1:
                                 c = '>'*3
-                            print c + l
+                            print(c + l)
 
-                        print ""
-                        print "Registers:"
-                        print self.execute('r')
+                        print("")
+                        print("Registers:")
+                        print(self.execute('r'))
 
                         self.shell()
                         break
 
         except PyCdbPipeClosedException:
-            print "pipe closed"
+            print("pipe closed")
+
+        except ExitProcessEvent:
+            print("program closed")
+
         except Exception as ex:
-            print ex
+            print(ex)
             raise ex
+
         finally:
             if not self.closed():
                 self.write_pipe('q\r\n')
 
 
 def usage():
-    print "usage: %s [-p|--pid] <pid>" % (sys.argv[0])
+    print("usage: %s [-p|--pid] <pid>" % (sys.argv[0]))
+
 
 if __name__ == "__main__":
     pid = False
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'p', ['pid'])
     except getopt.GetoptError as err:
-        print str(err)
+        print(str(err))
         usage()
         sys.exit(1)
     for o, a in opts:
