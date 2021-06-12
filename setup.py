@@ -12,7 +12,7 @@ setup(
         A python wrapper for Microsoft's CDB command-line debugger.
     """,
     license='MIT',
-    version='0.1',
+    version='0.2',
     author='@fishstiqz',
     maintainer='@fishstiqz',
     author_email='',
@@ -20,9 +20,9 @@ setup(
     platforms='Microsoft Windows',
     install_requires = open(os.path.join(os.path.dirname(__file__), "requirements.txt")).read().split("\n"),
     classifiers = [
-        'Programming Language :: Python :: 2',
-        # has not been tested on Python 3
-        # 'Programming Language :: Python :: 3',
+        # has not been tested on Python 2 since Python 3 support was added
+        # 'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 3',
     ],
     scripts = [
             # no scripts current exist
