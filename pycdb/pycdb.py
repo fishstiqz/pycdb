@@ -252,7 +252,7 @@ class CdbReaderThread(threading.Thread):
                 print("cdb.exe error: \r\n{}".format(curline))
                 self.queue.put(PipeClosedEvent())
                 break
-            if ch == '\n':
+            if ch == b'\n':
                 if PYTHON3:
                     self.process_line(curline.decode("ISO-8859-1"))
                 else:
@@ -739,8 +739,11 @@ class PyCdb(object):
         if type(address) == int:
             address = addr_to_hex(address)
         temp_bytes = ''
-        for b in buf:
-            temp_bytes += b.encode('hex') + ' '
+        if PYTHON3:
+            temp_bytes = buf.hex()
+        else:
+            for b in buf:
+                temp_bytes += b.encode('hex') + ' '
         return self.execute('eb %s %s' % (address, temp_bytes))
 
     def write_u64(self, address, val):
