@@ -739,8 +739,11 @@ class PyCdb(object):
         if type(address) == int:
             address = addr_to_hex(address)
         temp_bytes = ''
-        for b in buf:
-            temp_bytes += b.encode('hex') + ' '
+        if PYTHON3:
+            temp_bytes = buf.hex()
+        else:
+            for b in buf:
+                temp_bytes += b.encode('hex') + ' '
         return self.execute('eb %s %s' % (address, temp_bytes))
 
     def write_u64(self, address, val):
