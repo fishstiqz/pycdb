@@ -252,7 +252,7 @@ class CdbReaderThread(threading.Thread):
                 print("cdb.exe error: \r\n{}".format(curline))
                 self.queue.put(PipeClosedEvent())
                 break
-            if ch == '\n':
+            if ch == b'\n':
                 if PYTHON3:
                     self.process_line(curline.decode("ISO-8859-1"))
                 else:
