@@ -505,7 +505,7 @@ class PyCdb(object):
                 buf += ch
 
                 if len(buf) >= self.output_buf_max:
-                    buf = buf[self.output_buf_max / 2:]
+                    buf = buf[int(self.output_buf_max / 2):]
 
                 # look for prompt
                 if lastch == '>' and ch == ' ' and self.qthread.queue.empty():
