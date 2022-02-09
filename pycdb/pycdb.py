@@ -165,7 +165,7 @@ class ExitProcessEvent(DebuggerEvent):
         self.exit_code = exit_code
 
     def __str__(self):
-        return "BreakpointEvent(): %u" % self.exit_code
+        return "ExitProcessEvent(): %u" % self.exit_code
 
 
 class ExceptionEvent(DebuggerEvent):
